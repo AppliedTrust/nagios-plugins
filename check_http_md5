@@ -1,0 +1,27 @@
+#!/usr/bin/php -q
+<?php
+# ------------------------------------------------------------------
+# We offer no warantee or guarantee - use this code at your own risk!
+# All code is Copyright (C) 2011, Applied Trust Engineering, Inc.
+# ------------------------------------------------------------------
+
+# wget -q -O - http://appliedtrust.com | md5sum
+
+$url = $argv[1];
+$md5 = $argv[2]."  -";
+
+$status=0;
+
+$md5new = `wget -q -O - "$url" | md5sum`;
+$md5new= rtrim($md5new);
+
+if (strcmp($md5new, $md5)==0) {
+	echo "HTTPMD5sum OK: MD5sum matches\n";
+} else {
+	$status=2;
+	echo "HTTPMD5sum CRITICAL: MD5sum doesn't match: ".$md5new."\n";
+} 
+
+exit($status);
+
+

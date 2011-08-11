@@ -1,0 +1,89 @@
+#!/usr/bin/php -q
+<?php
+# ------------------------------------------------------------------
+# We offer no warantee or guarantee - use this code at your own risk!
+# All code is Copyright (C) 2011, Applied Trust Engineering, Inc.
+# ------------------------------------------------------------------
+
+$EC2_HOME = '/usr/local/ec2-api-tools/';
+
+putenv('EC2_HOME='.$EC2_HOME);
+putenv('JAVA_HOME=/usr/java/latest');
+putenv('TZ=America/Denver');
+
+error_reporting(-1);
+
+
+require_once 'aws_php_sdk/sdk.class.php';
+
+$regions = array (
+	'E1' => 'http://monitoring.amazonaws.com/doc/2010-08-01/CloudWatch.wsdl',
+	'W1' => 'http://monitoring.us-west-1.amazonaws.com/doc/2010-08-01/CloudWatch.wsdl',
+	'EU' => 'http://monitoring.eu-west-1.amazonaws.com/doc/2010-08-01/CloudWatch.wsdl',
+	'AP' => 'http://monitoring.ap-southeast-1.amazonaws.com/doc/2010-08-01/CloudWatch.wsdl',
+	);
+
+$options = getopt("R:K:S:i:");
+if (!isset($options["R"]) or (!isset($regions[$options["R"]]))) { usage(1); }
+if (!isset($options["K"])) { usage(); } 
+if (!isset($options["S"])) { usage(); }
+if (!isset($options["i"])) { usage(); }
+
+define('AWS_KEY', $options["K"]);
+define('AWS_SECRET_KEY', $options["S"]);
+$instance = $options["i"];
+
+$cw = new AmazonCloudWatch();
+# DOES NOT WORK: $response = $cw->list_metrics(array( 'Namespace' => 'AWS/EC2', 'Dimensions' => array( "Dimensions.0.Name" => "InstanceId", "Dimensions.0.Value" => "i-fxxxxxxx")));
+$response = $cw->list_metrics(array( 'Namespace' => 'AWS/EC2'));
+$metrics = array();
+foreach ($response->body->ListMetricsResult->Metrics->member as $v ) {
+	#var_dump( $v);
+	if ( strcmp( (string) $v->Dimensions->member->Name, "InstanceId") ==0) {
+		if (strcmp ($instance, (string) $v->Dimensions->member->Value ) !=0) { continue; }
+	} else { continue; }
+	$metrics[] = (string) $v->MetricName ;
+}
+#echo $instance."\n"; var_dump($metrics);
+
+$now=time();
+$perfdata=array();
+$result=0;
+foreach ($metrics as $m) {
+	if (in_array($m, array("NetworkIn","DiskWriteBytes","NetworkOut","DiskReadBytes"))) {
+		$unit = 'Bytes';
+	} else if (in_array($m, array( "DiskWriteOps","DiskReadOps"))) {
+		$unit = 'Count';
+	} else if (in_array($m, array( "CPUUtilization"))) {
+		$unit = 'Percent';
+	} else { $unit = 'None'; }
+
+	#`SampleCount`, `Average`, `Sum`, `Minimum`, `Maximum`
+        $r = $cw->get_metric_statistics('AWS/EC2', $m, date( "r", $now- 300), date("r", $now), 300, 'Average', $unit, array("InstanceId" => $instance));
+	if (isset( $r->body->GetMetricStatisticsResult->Datapoints->member[0]->Average)) {
+		array_push($perfdata,$m."=".(string) $r->body->GetMetricStatisticsResult->Datapoints->member[0]->Average);
+		# UNIT: (string) $r->body->GetMetricStatisticsResult->Datapoints->member[0]->Unit
+	} else { $result=2; }
+}
+if ($result==0 ){
+	print "CloudWatch OK for EC2 instance ".$options["i"]." |".join(',', $perfdata)."\n";
+	exit(0);
+} else {
+	print "CloudWatch CRITICAL Could not collect AWS CloudWatch data for EC2 instance ".$options["i"]." |\n";
+	exit(2);
+}
+
+function usage($show_regions=0) {
+	echo "usage: check_aws_cloudwatch -R [E|W|EU|AP] -K <AWSKeyString> -S <AWSSecretKeyString>\n";
+	if ($show_regions==1) {
+		echo " Region codes:\n";
+		echo "	E1: US-East (Northern Virginia) Region\n";
+		echo "	W1: US-West (Northern California) Region\n";
+		echo "	EU: EU (Ireland) Region\n";
+		echo "	AP: Asia Pacific (Singapore) Region\n";
+	}
+	exit(1);
+}
+
+
+

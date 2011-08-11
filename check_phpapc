@@ -1,0 +1,85 @@
+#!/usr/bin/php -q
+<?php
+# ------------------------------------------------------------------
+# We offer no warantee or guarantee - use this code at your own risk!
+# All code is Copyright (C) 2011, Applied Trust Engineering, Inc.
+# ------------------------------------------------------------------
+
+# Nagios plugin for monitoring the APC opcode cache for PHP.
+# The apc.php status script (which ships with php-apc) must be installed on the system to be monitoried and made accessible via HTTP/HTTPS.
+# See: https://github.com/nmcclain/home/ned/check_phpapc
+
+## config
+$service_name = "PHP-APC";
+$wget_or_curl_command = "wget -O - -q ";
+
+## read arguments/set default thresholds
+$options = getopt("U:f:m:");
+if (isset($options["U"])) { 
+        $url = $options["U"];
+} else {
+        usage();
+}
+if (isset($options["m"])) { 
+        $used_pct_max = $options["m"];
+} else {
+        $used_pct_max = 90;
+}
+if (isset($options["f"])) { 
+        $frag_pct_max = $options["f"];
+} else {
+        $frag_pct_max = 5;
+}
+
+## fetch APC stats from apc.php
+$cmd = $wget_or_curl_command.$url;
+$results = `$cmd`;
+$output=array();
+$status=0;
+
+## parse APC stats from apc.php output
+if (preg_match_all('/Host Status Diagrams.*Free:\s+(\S+\s\S+)\s+\((\S+)%\).*Hits:\s+(\S+)\s+\((\S+)%\).*Used:\s+(\S+\s\S+)\s+\((\S+)%\).*Misses:\s+(\S+)\s+\((\S+)%\).*Fragmentation:\s+(\S+)%.*<\/body>/msU', $results, $matches)) {
+	$free = $matches[1][0];
+	$free_pct = $matches[2][0];
+	$hits = $matches[3][0];
+	$hits_pct = $matches[4][0];
+	$used = $matches[5][0];
+	$used_pct = $matches[6][0];
+	$miss = $matches[7][0];
+	$miss_pct = $matches[8][0];
+	$frag_pct = $matches[9][0];
+
+	## check APC stats against thresholds
+	$output[] = $used_pct."% used mem";
+	if ($used_pct >= $used_pct_max) {
+		if ($status < 2) { $status=1; }
+	} 
+	$output[] = $frag_pct."% fragmentation";
+	if ($frag_pct >= $frag_pct_max) {
+		if ($status < 2) { $status=1; }
+	} 
+	$perf = " | free_pct=".$free_pct."; hits_pct=".$hits_pct."; miss_pct=".$miss_pct."; frag_pct=".$frag_pct;
+} else {
+	$output[] = "Could not parse apc.php output";
+	$status=2;
+}
+
+## output results
+echo $service_name;
+if ($status == 0) {
+	echo " OK: ";
+} else if ($status == 1) {
+	echo " WARNING: ";
+} else {
+	echo " CRITICAL: ";
+} 
+echo join(', ',$output ).$perf."\n";
+
+exit($status);
+
+#########
+function usage() {
+	echo "Usage: check_phpapc -U <full URL to apc.php> [-m <max_used_memory_pct>] [-f <max_fragmentation>]\n";
+	echo "Usage example: check_phpapc -U http://admin.com/apc.php -m 90 -f 10\n";
+	exit(1);
+}

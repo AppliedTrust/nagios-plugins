@@ -1,0 +1,56 @@
+#!/usr/bin/php -q
+<?php
+# ------------------------------------------------------------------
+# We offer no warantee or guarantee - use this code at your own risk!
+# All code is Copyright (C) 2011, Applied Trust Engineering, Inc.
+# ------------------------------------------------------------------
+
+#putenv('EC2_HOME=/usr/local/ec2-api-tools');
+#putenv('JAVA_HOME=/usr/java/latest');
+#putenv('TZ=America/Denver');
+
+$options = getopt("S:K:v:");
+if (!isset($options["S"])) { usage(); }
+if (!isset($options["K"])) { usage(); }
+if (!isset($options["v"])) { usage(); }
+
+define('AWS_KEY', $options["K"]);
+define('AWS_SECRET_KEY', $options["S"]);
+
+error_reporting(-1);
+require_once '/usr/local/aws-php-sdk/sdk.class.php';
+
+$regions = array (
+	'E1' => 'http://monitoring.amazonaws.com/doc/2010-08-01/CloudWatch.wsdl',
+	'W1' => 'http://monitoring.us-west-1.amazonaws.com/doc/2010-08-01/CloudWatch.wsdl',
+	'EU' => 'http://monitoring.eu-west-1.amazonaws.com/doc/2010-08-01/CloudWatch.wsdl',
+	'AP' => 'http://monitoring.ap-southeast-1.amazonaws.com/doc/2010-08-01/CloudWatch.wsdl',
+        );
+
+$ec2 = new AmazonEC2();
+
+$description = $ec2->describe_volumes(array(
+	'VolumeId' => $options["v"],
+));
+
+$text = "Nagios snap of " . $options["v"];
+if ($description->body->volumeSet->item->attachmentSet->item->status == "attached") {
+	$device = $description->body->volumeSet->item->attachmentSet->item->device;
+	$instance = $description->body->volumeSet->item->attachmentSet->item->instanceId;
+	$value = $description->body->volumeSet->item->tagSet->item->value;
+	$text = $text . " - " . $device . " on " . $instance . " (" . $value . ")";
+}
+
+$response = $ec2->create_snapshot( $options["v"], $text);
+if ($response->isOK()) {
+	print "EBS-snapshot OK - Created snapshot " . $response->body->snapshotId . " of volume ".$options["v"]."|\n";
+} else {
+	print "EBS-snapshot CRITICAL - Error creating snapshot of volume ".$options["v"].": ".$response->body->Errors->Error->Message."|\n";
+	exit(2);
+}
+exit(0);
+
+function usage() {
+	echo "usage: create_ebs_snapshot -K <accesskey> -S <secretkey> -v <volume-id>\n";
+	exit(1);
+}

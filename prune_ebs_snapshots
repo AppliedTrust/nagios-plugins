@@ -1,0 +1,176 @@
+#!/usr/bin/php -q
+<?php
+# ------------------------------------------------------------------
+# We offer no warantee or guarantee - use this code at your own risk!
+# All code is Copyright (C) 2011, Applied Trust Engineering, Inc.
+# ------------------------------------------------------------------
+
+putenv('TZ=America/Denver');
+$debug = 0;
+
+$options = getopt("S:K:v:a:p:d");
+if (!isset($options["S"])) { usage(); }
+if (!isset($options["K"])) { usage(); }
+if (!isset($options["v"])) { usage(); }
+if (!isset($options["a"])) { usage(); }
+if (!isset($options["p"])) { usage(); }
+if (isset($options["d"])) { $debug = 1; }
+
+define('AWS_KEY', $options["K"]);
+define('AWS_SECRET_KEY', $options["S"]);
+
+error_reporting(-1);
+require_once '/usr/local/aws-php-sdk/sdk.class.php';
+
+$regions = array (
+	'E1' => 'http://monitoring.amazonaws.com/doc/2010-08-01/CloudWatch.wsdl',
+	'W1' => 'http://monitoring.us-west-1.amazonaws.com/doc/2010-08-01/CloudWatch.wsdl',
+	'EU' => 'http://monitoring.eu-west-1.amazonaws.com/doc/2010-08-01/CloudWatch.wsdl',
+	'AP' => 'http://monitoring.ap-southeast-1.amazonaws.com/doc/2010-08-01/CloudWatch.wsdl',
+	);
+
+$quarters = array (
+	'01' => '1',
+	'02' => '1',
+	'03' => '1',
+	'04' => '2',
+	'05' => '2',
+	'06' => '2',
+	'07' => '3',
+	'08' => '3',
+	'09' => '3',
+	'10' => '4',
+	'11' => '4',
+	'12' => '4',
+	);
+
+# Allow for a comma-separated list of volumes
+$volumes = preg_split('/,/', $options["v"]);
+
+$archive = $options["a"];
+$period = $options["p"];
+
+if (($period != "q") && ($period != "m")) {
+	echo "Period option must be either q (quarterly) or m (monthly).";
+	usage();
+}
+
+$ec2 = new AmazonEC2();
+
+// Get the response from a call to the DescribeImages operation.
+$response = $ec2->describe_snapshots();
+
+$errors = 0;
+$successes=0;
+$now = time();
+$oneday = 86400;
+$olderthan = $now-($archive*$oneday);
+
+log_message("finished fetching list of snapshots, beginning to parse.");
+log_message("archive duration is $archive days, or older than " . date("m-d-Y H:i", $olderthan));
+if ($period == "q") {
+	log_message("period retention is quarterly");
+}
+else {
+	log_message("period retention is monthly");
+}
+
+$all_snapshots = array();
+foreach ( $response->body->snapshotSet->item as $snapshot) {
+	$temparray = array(
+		'snapshotId' => $snapshot->snapshotId,
+		'volumeId'   => $snapshot->volumeId,
+		'startTime'  => $snapshot->startTime,
+	);
+	array_push($all_snapshots, $temparray);
+}
+
+#foreach ($all_snapshots as $mysnap) {
+#	echo "snapshotId: " . $mysnap['snapshotId'] . "\n";
+#	echo "volumeId: " . $mysnap['volumeId'] . "\n";
+#	echo "startTime: " . $mysnap['startTime'] . "\n\n";
+#}
+#exit;
+
+
+foreach ($volumes as $volid) {
+	log_message("Examining volume $volid...");
+
+	$snaplist=array();
+	foreach ($all_snapshots as $snapshot) {
+		if ($snapshot['volumeId'] == $volid) {
+			$snaplist[strtotime($snapshot['startTime'])] = $snapshot['snapshotId'];
+		}
+	}
+
+	ksort ($snaplist);
+	$keepers = array();
+	foreach ($snaplist as $ts => $id) {
+		log_message("examining $id - " . date("m-d-Y H:i", $ts));
+
+		# this is crazy black magic to deal with retaining one snapshot per period
+		$month = date("m", $ts);
+		$quarter = $quarters[$month];;
+		log_message("\ttaken in quarter: $quarter");
+		log_message("\ttaken in month: $month");
+
+		# first check if this is the first snapshot in the rentention period (quarter or month)
+		if (($period == "q") && (!isset($keepers[$quarter]))) {
+			log_message("\tkeeping because it's the first in quarter $quarter");
+			$keepers[$quarter] = $id;
+			continue;
+		}
+		if (($period == "m") && (!isset($keepers[$month]))) {
+			log_message("\tkeeping because it's the first in month $month");
+			$keepers[$month] = $id;
+			continue;
+		}
+	
+		# finally, keep if > $archive days old
+		if ($ts > $olderthan) {
+			log_message("\tkeeping because it's more recent than the archive duration");
+			continue;
+		} 
+	
+		# if we've gotten this far, we can delete the snapshot
+		if ($debug) {
+			log_message("\tIF THIS WERE NOT DEBUG MODE THIS SNAPSHOT WOULD BE DELETED!");
+			continue;
+		}
+		$response = $ec2->delete_snapshot($id);
+		if ($response->isOK()) {
+			$successes++;
+		} 
+		else if (strcmp($response->body->Errors->Error->Code, 'InvalidSnapshot.InUse')==0) {
+			log_message("\tskipped because it's in use (perhaps for an AMI)");
+			continue;
+		} 
+		else {
+			$errors++;
+		}
+	}
+}
+
+if ($errors) {
+	echo "prune_ebs_snapshots CRITICAL - Error pruning snapshots\n";
+	exit(2);
+} 
+else {
+	echo "prune_ebs_snapshots OK - $successes snapshots pruned\n";
+	exit(0);
+}
+
+
+############################################################
+
+function log_message($message) {
+	global $debug;
+	if ($debug) {
+		echo "$message\n";
+	}
+}
+
+function usage() {
+	echo "usage: prune_ebs_snapshot -K <access_key_id> -S <secret_access_key> -v <volume_id(s)> -a <archive duration> -p <period>\n";
+	exit(1);
+}

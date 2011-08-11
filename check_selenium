@@ -1,0 +1,123 @@
+#!/usr/bin/php
+<?php
+# ------------------------------------------------------------------
+# We offer no warantee or guarantee - use this code at your own risk!
+# All code is Copyright (C) 2011, Applied Trust Engineering, Inc.
+# ------------------------------------------------------------------
+
+/*
+define command{
+        command_name                    check_selenium
+        command_line                    $USER1$/check_selenium -d $ARG1$ -u $ARG2$
+}
+ */
+
+// handle options
+$options = getopt("d:u:");
+if (!isset($options["d"])) { usage(); }
+if (!isset($options["u"])) { usage(); }
+if (!preg_match('/^http/', $options["u"])) { usage(); }
+$test_directory = $options["d"];
+$base_url = $options["u"];
+
+// run test cases
+$mytest = create_phpunit_test_file($test_directory, $base_url);
+$test_results = run_phpunit_test($mytest);
+unlink($mytest);
+
+// all done
+echo $test_results['output']."\n";
+exit ($test_results['status']);
+
+
+########################
+function usage() {
+	echo "usage: check_selenium -d <test_directory> -u <base_url>\n";
+	exit(1);
+}
+
+########################
+function run_phpunit_test($testfile) {
+	$phpunit_cmd = '/usr/bin/phpunit '; # --log-junit phunit-bnw.log ';
+
+	$cmd = $phpunit_cmd.$testfile;
+	$name = 'selenium'; 
+	#echo "running: $cmd\n";
+	$result = `$cmd`;
+		
+	if (preg_match('/Time: (\d+) seconds/', $result, $matches_first) and preg_match('/OK \((\d+) tests{0,1}, (\d+) assertions\)/', $result, $matches_second)) {
+		$output = "Selenium OK: ";
+		$output .= $matches_second[2]." assertions, zero fails";
+		$output .= " |".$name."_time=".$matches_first[1].";";
+		$output .= $name."_tests=".$matches_second[1].";";
+		$output .= $name."_assertions=".$matches_second[2].";";
+		$output .= $name."_failures=0";
+		$status = 0;
+
+	} else if (preg_match('/Time: (\d+) seconds/', $result, $matches_first) and preg_match('/FAILURES!\nTests: (\d+), Assertions: (\d+), Failures: (\d+)\./', $result, $matches_second)) {
+
+		$output = "Selenium ERROR: ";
+		$output .= $matches_second[2]." assertions, ".$matches_second[3]." fails";
+		$output .= " |".$name."_time=".$matches_first[1].";";
+		$output .= $name."_tests=".$matches_second[1].";";
+		$output .= $name."_assertions=".$matches_second[2].";";
+		$output .= $name."_failures=".$matches_second[3];
+		$status = 2;
+
+	} else {
+		$output = "Selenium Error: parse error: ".$result;
+		$status = 2;
+	}
+
+	return array( 'output' => $output, 'status' => $status );
+}
+
+########################
+function create_phpunit_test_file($selenese_test_dir, $browser_url) {
+	$selenium_host = 'XXXXXXXXXXXX.com';
+	$selenium_timeout = 10000;
+
+	$tmpfname = tempnam("/tmp", "check_selenium_temp_file");
+
+	$filecontents  = "";
+	$filecontents .= "<?php \n";
+
+	$filecontents .= "require_once 'Testing/Selenium.php'; \n";
+	$filecontents .= "require_once 'PHPUnit/Autoload.php'; \n";
+	$filecontents .= "class SeleniumTests extends PHPUnit_Extensions_SeleniumTestCase { \n";
+	$filecontents .= " public static \$seleneseDirectory = '".$selenese_test_dir."'; \n";
+	$filecontents .= " public static \$browsers = array( \n";
+	$filecontents .= "  array( \n";
+	$filecontents .= "   'name'    => 'Firefox on Windows Server 2008', \n";
+	$filecontents .= "   'browser' => '*firefox', \n";
+	$filecontents .= "  ), \n";
+/*
+	$filecontents .= "  array( \n";
+	$filecontents .= "  'name'    => 'Chrome on Windows Server 2008', \n";
+	$filecontents .= "  'browser' => '*googlechrome', \n";
+	$filecontents .= "  'host'    => 'ANOTHERHOST.com', \n";
+	$filecontents .= "  'port'    => 4444, \n";
+	$filecontents .= "  'timeout' => 10000, \n";
+	$filecontents .= "  ), \n";
+ */
+/*
+	$filecontents .= "  array( \n";
+	$filecontents .= "  'name'    => 'Internet Explorer on Windows Server 2008', \n";
+	$filecontents .= "  'browser' => '*iexplore', \n";
+	$filecontents .= "  ), \n";
+ */
+	$filecontents .= " ); \n";
+	$filecontents .= " protected function setUp() { \n";
+	$filecontents .= "  \$this->setHost('".$selenium_host."'); \n";
+	$filecontents .= "  \$this->setPort(4444); \n";
+	$filecontents .= "  \$this->setTimeout(".$selenium_timeout."); \n";
+	$filecontents .= "  \$this->setBrowserUrl('".$browser_url."'); \n";
+	$filecontents .= " } \n";
+	$filecontents .= "} \n\n";
+
+	file_put_contents($tmpfname, $filecontents);
+
+	return $tmpfname;
+}
+
+########################
