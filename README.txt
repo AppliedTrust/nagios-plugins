@@ -21,3 +21,5 @@ create_ebs_snapshot: A Nagios plugin to snapshot an AWS EBS volume.
 
 prune_ebs_snapshots: A Nagios plugin to prune old AWS EBS volume snapshots created by create_ebs_snapshot.
 
+check_pagespeed: A Nagios plugin to check the Google PageSpeed score for a site.
+

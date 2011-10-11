@@ -1,0 +1,26 @@
+#!/usr/bin/php -q
+<?php
+# ------------------------------------------------------------------
+# We offer no warantee or guarantee - use this code at your own risk!
+# All code is Copyright (C) 2011, Applied Trust Engineering, Inc.
+# ------------------------------------------------------------------
+
+$apikey = 'XXX PUT GOOGLE API KEY HERE XXX';
+$targeturl = $argv[1];
+
+$url='https://www.googleapis.com/pagespeedonline/v1/runPagespeed?key='.$apikey.'&url='.$targeturl;
+$json = json_decode(`wget -q -O - "$url"`);
+
+$status = 0;
+$message = 'PageSpeed Score: '.$json->score;
+$perf = 'score='.$json->score;
+$perf .= ',numberResources='.$json->pageStats->numberResources;
+$perf .= ', numberHosts='.$json->pageStats->numberHosts;
+$perf .= ', htmlResponseBytes='.$json->pageStats->htmlResponseBytes;
+$perf .= ', cssResponseBytes='.$json->pageStats->cssResponseBytes;
+$perf .= ', imageResponseBytes='.$json->pageStats->imageResponseBytes;
+$perf .= ', javascriptResponseBytes='.$json->pageStats->javascriptResponseBytes;
+
+echo $message." | ".$perf."\n";
+exit($status);
+
