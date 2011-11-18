@@ -4,6 +4,13 @@
 # We offer no warantee or guarantee - use this code at your own risk!
 # All code is Copyright (C) 2011, Applied Trust Engineering, Inc.
 # ------------------------------------------------------------------
+#
+# Depends on PHPunit and the Testing_Selenium library:
+# sudo pear config-set auto_discover 1
+# sudo pear install pear.phpunit.de/PHPUnit
+# sudo pear install channel://pear.php.net/Testing_Selenium-0.4.4
+
+# see: https://github.com/sebastianbergmann/phpunit/issues/367
 
 /*
 define command{
@@ -13,17 +20,19 @@ define command{
  */
 
 // handle options
-$options = getopt("d:u:");
+$options = getopt("d:u:h:");
 if (!isset($options["d"])) { usage(); }
 if (!isset($options["u"])) { usage(); }
+if (!isset($options["h"])) { usage(); }
 if (!preg_match('/^http/', $options["u"])) { usage(); }
 $test_directory = $options["d"];
 $base_url = $options["u"];
+$selenium_host = $options["h"];
 
 // run test cases
-$mytest = create_phpunit_test_file($test_directory, $base_url);
+$mytest = create_phpunit_test_file($test_directory, $base_url, $selenium_host);
 $test_results = run_phpunit_test($mytest);
-unlink($mytest);
+#unlink($mytest);
 
 // all done
 echo $test_results['output']."\n";
@@ -32,7 +41,7 @@ exit ($test_results['status']);
 
 ########################
 function usage() {
-	echo "usage: check_selenium -d <test_directory> -u <base_url>\n";
+	echo "usage: check_selenium -d <test_directory> -u <base_url> -h <selenium_host>\n";
 	exit(1);
 }
 
@@ -73,44 +82,25 @@ function run_phpunit_test($testfile) {
 }
 
 ########################
-function create_phpunit_test_file($selenese_test_dir, $browser_url) {
-	$selenium_host = 'XXXXXXXXXXXX.com';
-	$selenium_timeout = 10000;
-
+function create_phpunit_test_file($selenese_test_dir, $browser_url, $selenium_host) {
 	$tmpfname = tempnam("/tmp", "check_selenium_temp_file");
 
 	$filecontents  = "";
 	$filecontents .= "<?php \n";
 
-	$filecontents .= "require_once 'Testing/Selenium.php'; \n";
-	$filecontents .= "require_once 'PHPUnit/Autoload.php'; \n";
+	$filecontents .= "require_once 'PHPUnit/Extensions/SeleniumTestCase.php'; \n";
 	$filecontents .= "class SeleniumTests extends PHPUnit_Extensions_SeleniumTestCase { \n";
 	$filecontents .= " public static \$seleneseDirectory = '".$selenese_test_dir."'; \n";
 	$filecontents .= " public static \$browsers = array( \n";
 	$filecontents .= "  array( \n";
 	$filecontents .= "   'name'    => 'Firefox on Windows Server 2008', \n";
 	$filecontents .= "   'browser' => '*firefox', \n";
+	$filecontents .= "   'host'    => '".$selenium_host."', \n";
+	$filecontents .= "   'port' => 4444, \n";
+	$filecontents .= "   'timeout' => 10000, \n";
 	$filecontents .= "  ), \n";
-/*
-	$filecontents .= "  array( \n";
-	$filecontents .= "  'name'    => 'Chrome on Windows Server 2008', \n";
-	$filecontents .= "  'browser' => '*googlechrome', \n";
-	$filecontents .= "  'host'    => 'ANOTHERHOST.com', \n";
-	$filecontents .= "  'port'    => 4444, \n";
-	$filecontents .= "  'timeout' => 10000, \n";
-	$filecontents .= "  ), \n";
- */
-/*
-	$filecontents .= "  array( \n";
-	$filecontents .= "  'name'    => 'Internet Explorer on Windows Server 2008', \n";
-	$filecontents .= "  'browser' => '*iexplore', \n";
-	$filecontents .= "  ), \n";
- */
 	$filecontents .= " ); \n";
 	$filecontents .= " protected function setUp() { \n";
-	$filecontents .= "  \$this->setHost('".$selenium_host."'); \n";
-	$filecontents .= "  \$this->setPort(4444); \n";
-	$filecontents .= "  \$this->setTimeout(".$selenium_timeout."); \n";
 	$filecontents .= "  \$this->setBrowserUrl('".$browser_url."'); \n";
 	$filecontents .= " } \n";
 	$filecontents .= "} \n\n";
