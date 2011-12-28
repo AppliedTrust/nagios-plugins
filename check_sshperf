@@ -1,0 +1,1491 @@
+#!/usr/bin/perl
+
+
+#############
+#   $ID$
+#   $Log: check_sshperf,v $
+#
+#   Revision 1.16  2009/03/12 15:02:45  chris
+#   added support for hp-ux
+#
+#   Revision 1.15  2007/09/27 19:01:58  ned
+#   checking in ben's change to count processes more accurately
+#
+#   Revision 1.13  2007/06/11 17:49:52  ned
+#   updated check_sshperf
+#
+#   Revision 1.12  2007/03/19 16:55:53  ned
+#   improved (fixed!) zimbra queue monitoring
+#
+#   Revision 1.11  2007/02/28 22:44:37  ned
+#   improved check_sshperf, added send_sms_tmobileweb
+#
+#   Revision 1.10  2007/01/19 18:10:51  ned
+#   added checking of zimbra and sendmail queue lengths
+#
+#   Revision 1.9  2007/01/16 21:38:08  ned
+#   added monitoring of these zimbra services:
+#           antispam                Running
+#           antivirus               Running
+#           ldap                    Running
+#           logger                  Running
+#           mailbox                 Running
+#           mta                     Running
+#           snmp                    Running
+#           spell                   Running
+#
+#   using check_sshperf: /opt/zimbra/bin/zmcontrol status
+#
+#   Revision 1.8  2006/11/13 15:13:47  ned
+#   collin's fix, ned's fix
+#
+#   Revision 1.5  2006/11/13 15:12:12  ned
+#   checked in collin's changes
+#
+#   Revision 1.4  2006/10/11 22:56:23  ned
+#   fileage formatting
+#
+#   Revision 1.3  2006/10/11 21:47:15  ned
+#   fixed proc-exists for non-solaris
+#
+#   Revision 1.1.1.1  2006/09/07 19:59:48  ned
+#   check_sshperf script for nagios
+#
+#############
+
+
+# die("usage: check_sshperf -c <configfile>") if ($ARGV[0] != "-c");
+
+$CFGFILE = $ARGV[1];
+$SNMPHOST = $ARGV[3];
+
+$LOGFILE = "/usr/local/nagios/var/sshperf.log";
+$ECFFILE = "/usr/local/nagios/var/rw/nagios.cmd";
+if ($ARGV[0] eq "-d") {
+        $DEBUG = 1; 
+        $SILENT = 0;
+} elsif ($ARGV[0] eq "-s") {
+        $SILENT = 1; 
+        $DEBUG = 0;
+} else {
+        $SILENT = 0;
+        $DEBUG = 0;
+}
+
+
+## this program:
+# reads a config file for thresholds, disks
+# collects remote info via ssh
+# parses all info into local variables
+# submits SSHPERF ok if it can connect via ssh
+# for each test in config file, submit passive event to nagios for threshold metrics
+
+
+## todos:
+# error check ARGs
+# usage?
+#
+# collect interface bandwidth usage
+# collect disk usage
+
+
+#######################
+
+my $tests;
+&ReadConfig();
+
+
+if ((!defined($connection{"host"})) || (!defined($connection{"user"})) || (!defined($connection{"key"}))) { die("missing complete connect statement\n"); }
+
+
+# do the ssh
+$SSHCOMMAND = '/usr/bin/ssh';
+
+
+if ($connection{"host"} =~ /(.*):(\d+)/) {
+        $connection{"host"} = $1;
+        $connection{"port"} = $2;
+}
+if (!defined($connection{"osversion"})) { $connection{"osversion"} = "linux-rh"; }
+
+my %commands;
+foreach $test (keys(%tests)) {
+        # &debug("saw test $test");
+        if ($test eq "load-5minave") {
+                if (!defined($commands{"uptime"})) { $commands{"uptime"} = 1; }
+        } elsif ($test =~ /^proc-exists-/) {
+                if (!defined($commands{"ps"})) { $commands{"ps"} = 1; }
+        } elsif ($test eq "cpu-idlepct") {
+                if (!defined($commands{"vmstat"})) { $commands{"vmstat"} = 1; }
+        } elsif ($test eq "mem-free") {
+                if ($connection{"osversion"} =~ /linux-rh/) {
+                        if (!defined($commands{"free"})) { $commands{"free"} = 1; }
+                } elsif ($connection{"osversion"} =~ /^solaris-/) {
+                        if (!defined($commands{"top"})) { $commands{"top"} = 1; }
+                } elsif ($connection{"osversion"} =~ /^hp-ux/) {
+			if (!defined($commands{"swapinfo"})) { $commands{"swapinfo"} = 1; }
+		} else {
+                        if (!defined($commands{"free"})) { $commands{"free"} = 1; }
+                }
+        } elsif ($test eq "swap-free") {
+                if ($connection{"osversion"} =~ /linux-rh/) {
+                        if (!defined($commands{"free"})) { $commands{"free"} = 1; }
+                } elsif ($connection{"osversion"} =~ /^solaris-/) {
+                        if (!defined($commands{"top"})) { $commands{"top"} = 1; }
+                } elsif ($connection{"osversion"} =~ /^hp-ux/) {
+                        if (!defined($commands{"swapinfo"})) { $commands{"swapinfo"} = 1; }
+                } else {
+                        if (!defined($commands{"free"})) { $commands{"free"} = 1; }
+                }
+        } elsif ($test eq "mem-freepct") {
+                if ($connection{"osversion"} =~ /linux-rh/) {
+                        if (!defined($commands{"free"})) { $commands{"free"} = 1; }
+                } elsif ($connection{"osversion"} =~ /^solaris-/) {
+                        if (!defined($commands{"top"})) { $commands{"top"} = 1; }
+                } elsif ($connection{"osversion"} =~ /^hp-ux/) {
+                        if (!defined($commands{"swapinfo"})) { $commands{"swapinfo"} = 1; }
+                } else {
+                        if (!defined($commands{"free"})) { $commands{"free"} = 1; }
+                }
+        } elsif ($test eq "swap-freepct") {
+                if ($connection{"osversion"} =~ /linux-rh/) {
+                        if (!defined($commands{"free"})) { $commands{"free"} = 1; }
+                } elsif ($connection{"osversion"} =~ /^solaris-/) {
+                        if (!defined($commands{"top"})) { $commands{"top"} = 1; }
+                } elsif ($connection{"osversion"} =~ /^hp-ux/) {
+                        if (!defined($commands{"swapinfo"})) { $commands{"swapinfo"} = 1; }
+                } else {
+                        if (!defined($commands{"free"})) { $commands{"free"} = 1; }
+                }
+        } elsif ($test =~ /^sar-/) {
+                if ($connection{"osversion"} =~ /linux-rh/) {
+                        if (!defined($commands{"sar"})) { $commands{"sar"} = 1; }
+                } else {
+                        if (!defined($commands{"sar"})) { $commands{"sar"} = 1; }
+                }
+        } elsif ($test =~ /snmp-oid-/) {
+                if (!defined($commands{$test})) { $commands{$test} = 1; }
+        } elsif ($test =~ /^snmp-/) {
+                if (!defined($commands{$test})) { $commands{$test} = 1; }
+        } elsif ($test =~ /disk-usedpct-(.*)/) {
+                if (!defined($commands{"df"})) { $commands{"df"} = 1; }
+        } elsif ($test =~ /local-check_smtp-(.*)/) {
+                if (!defined($commands{$test})) { $commands{$test} = 1; }
+        } elsif ($test eq "mysql") {
+                if (!defined($commands{$test})) { $commands{$test} = 1; }
+        } elsif ($test eq "zimbra-services") {
+                if (!defined($commands{$test})) { $commands{$test} = 1; }
+        } elsif ($test eq "zimbra-queues") {
+                if (!defined($commands{$test})) { $commands{$test} = 1; }
+        } elsif ($test eq "mailq") {
+                if (!defined($commands{$test})) { $commands{$test} = 1; }
+        } elsif ($test =~ /^ping-/) {
+                if ($connection{"osversion"} =~ /linux-rh/) {
+                        if (!defined($commands{$test})) { $commands{$test} = 1; }
+                } else { die("cant do ping tests on non-linux: $test\n"); }
+        } elsif ($test =~ /^fileage-/) {
+                if ($connection{"osversion"} =~ /linux-rh/) {
+                        if (!defined($commands{$test})) { $commands{$test} = 1; }
+                } else { die("cant do fileage tests on non-linux: $test\n"); }
+        } elsif ($test =~ /^int-/) {
+                if ($connection{"osversion"} =~ /linux-rh/) {
+                        if (!defined($commands{$test})) { $commands{$test} = 1; }
+                } else { die("cant do interfaces on non-linux: $test\n"); }
+        } else { die("unknown test: $test\n"); }
+# XXX NEW
+}
+
+my $sshcmd = "";
+foreach (keys(%commands)) {
+        # &debug("registered command $_");
+        if ($_ eq "uptime") {
+                $sshcmd = $sshcmd . "echo \@\@\@\@;uptime;";
+        } elsif ($_ eq "ps") {
+                $sshcmd = $sshcmd . "echo \@\@\@\@;ps -ef | grep -v echo;";
+        } elsif ($_ eq "vmstat") {
+                $sshcmd = $sshcmd . "echo \@\@\@\@;vmstat 2 2;";
+        } elsif ($_ eq "zimbra-services") {
+                $sshcmd = $sshcmd . "echo \@\@\@\@;sudo -u zimbra /opt/zimbra/bin/zmcontrol status;";
+        } elsif ($_ eq "zimbra-queues") {
+                $sshcmd = $sshcmd . "echo \@\@\@\@;sudo -u zimbra /opt/zimbra/bin/qshape -b 1 /opt/zimbra/data/postfix/spool/deferred;echo UUUU;sudo -u zimbra /opt/zimbra/bin/qshape -b 1 /opt/zimbra/data/postfix/spool/hold;echo UUUU;sudo -u zimbra /opt/zimbra/bin/qshape -b 1 /opt/zimbra/data/postfix/spool/incoming;echo UUUU;sudo -u zimbra /opt/zimbra/bin/qshape -b 1 /opt/zimbra/data/postfix/spool/active;echo UUUU;sudo -u zimbra /opt/zimbra/bin/qshape -b 1 /opt/zimbra/data/postfix/spool/corrupt;";
+        } elsif ($_ eq "mailq") {
+                $sshcmd = $sshcmd . 'echo \@\@\@\@;sudo /usr/bin/mailq | grep "^[a-zA-Z]" | wc -l;';
+        } elsif ($_ =~ /^ping-(\S+)/) {
+                $sshcmd = $sshcmd . "echo \@\@\@\@;ping -c1 -q -n " . $1 . ";";
+        } elsif ($_ =~ /^fileage-(\S+)/) {
+                $sshcmd = $sshcmd . "echo \@\@\@\@;stat -c %Y ".$1.";date +%s;";
+        } elsif ($_ eq "free") {
+                $sshcmd = $sshcmd . "echo \@\@\@\@;free;";
+        } elsif ($_ eq "top") {
+                if ($connection{"osversion"} =~ /^solaris-/) {
+                        $sshcmd = $sshcmd . "echo \@\@\@\@;top -n 1;";
+                } else {
+                        $sshcmd = $sshcmd . "echo \@\@\@\@;top;";
+                }
+        } elsif ($_ eq "df") {
+                if ($connection{"osversion"} =~ /linux-\S+-longdf/) {
+                        $sshcmd = $sshcmd . "echo \@\@\@\@;df -P;";
+                } elsif ($connection{"osversion"} =~ /linux-rh/) {
+                        $sshcmd = $sshcmd . "echo \@\@\@\@;df;";
+                } elsif ($connection{"osversion"} =~ /^solaris-/) {
+                        $sshcmd = $sshcmd . "echo \@\@\@\@;df -k;";
+		} elsif ($connection{"osversion"} =~ /hp-ux/) {
+			$sshcmd = $sshcmd . "echo \@\@\@\@;bdf;";
+                } else {
+                        $sshcmd = $sshcmd . "echo \@\@\@\@;df;";
+                }
+        } elsif ($_ eq "sar") {
+                if ($connection{"osversion"} =~ /linux-rhel3/) {
+                        $sshcmd = $sshcmd . "echo \@\@\@\@;sadf -- -A | sort -n -r -k3 | head -200;";
+                } elsif ($connection{"osversion"} =~ /linux-rhel5/) {
+                        $sshcmd = $sshcmd . "echo \@\@\@\@;sadf -- -A | sort -n -r -k3 | head -200;";
+                } elsif ($connection{"osversion"} =~ /linux-rhel4/) {
+                        $sshcmd = $sshcmd . "echo \@\@\@\@;sar -Ah | sort -n -r -k3 | head -200;";
+                } elsif ($connection{"osversion"} =~ /linux-rh/) {
+                        $sshcmd = $sshcmd . "echo \@\@\@\@;sar -Ah | sort -n -r -k3 | head -200;";
+                } elsif ($connection{"osversion"} =~ /^solaris-/) {
+                        $sshcmd = $sshcmd . "echo \@\@\@\@;perf/collect_stats.pl;";
+                } else {
+                        $sshcmd = $sshcmd . "echo \@\@\@\@;sar -Ah | sort -n -r -k3 | head -200;";
+                }
+        } elsif ($_ =~ /^local-check_smtp-(.*)/) {
+                $sshcmd = $sshcmd . "echo \@\@\@\@;bin/check_smtp -H $1 -w 5 -c 10 -t 10 -e " . $tests{$_}. "$e;";
+        } elsif ($_ =~ /^snmp-/) {
+                my ($h, $comm, $warn, $crit, $misc) = split("~", $tests{$_});
+                if ($SNMPHOST) { $h = $SNMPHOST; }
+                if ($_ eq "snmp-winprocessorload") {
+                        $sshcmd = $sshcmd . "echo \@\@\@\@;snmpget -v1 -c $comm -Oq $h .1.3.6.1.2.1.25.3.3.1.2.1;"; 
+                } elsif ($_ eq "snmp-winsystemnumusers") {
+                        $sshcmd = $sshcmd . "echo \@\@\@\@;snmpget -v1 -c $comm -Oq $h .1.3.6.1.2.1.25.1.5.0;"; 
+                } elsif ($_ eq "snmp-winsystemprocesses") {
+                        $sshcmd = $sshcmd . "echo \@\@\@\@;snmpget -v1 -c $comm -Oq $h .1.3.6.1.2.1.25.1.6.0;"; 
+                } elsif ($_ eq "snmp-wintcpcurrestab") {
+                        $sshcmd = $sshcmd . "echo \@\@\@\@;snmpget -v1 -c $comm -Oq $h .1.3.6.1.2.1.6.9.0;"; 
+                } elsif ($_ eq "snmp-ioscpu5min") {
+                        $sshcmd = $sshcmd . "echo \@\@\@\@;snmpget -v1 -c $comm -Oq $h .1.3.6.1.4.1.9.2.1.57.0;"; 
+                } elsif ($_ eq "snmp-iosmem5minused") {
+                        $sshcmd = $sshcmd . "echo \@\@\@\@;snmpget -v1 -c $comm -Oq $h .1.3.6.1.4.1.9.9.48.1.1.1.5.1;";
+                } elsif ($_ eq "snmp-iosmem5minfree") {
+                        $sshcmd = $sshcmd . "echo \@\@\@\@;snmpget -v1 -c $comm -Oq $h .1.3.6.1.4.1.9.9.48.1.1.1.6.1;";
+                } elsif ($_ =~ /snmp-oid-/) {
+                        $sshcmd = $sshcmd . "echo \@\@\@\@;snmpget -v1 -c $comm -Oq $h $misc;";
+                } else {
+                        die("error: unknown snmp command: $_\n");
+                }
+        } elsif ($_ eq "mysql") {
+                my ($user, $pass) = split("~", $tests{$_});
+                $sshcmd = $sshcmd . "echo \@\@\@\@;/usr/bin/mysqladmin -u" . $user . " -p" . $pass . " status;";
+        } elsif ($_ =~ /^int-(\S+)/) {
+                $sshcmd = $sshcmd . "echo \@\@\@\@;grep $1 /proc/net/dev;"; 
+        } elsif ($_ eq "swapinfo") {
+		$sshcmd = $sshcmd . "echo \@\@\@\@;/usr/sbin/swapinfo;";
+	} else { die("unknown command: $_"); }
+# XXX NEW
+}
+
+
+$sshline = $SSHCOMMAND . " " . $connection{"host"};
+if ($connection{"port"}) { $sshline = $sshline . " -p" . $connection{"port"}; }
+
+$sshline = $sshline . " -l" . $connection{"user"} . " -i" . $connection{"key"};
+
+if ($connection{"extra"}) {
+        &debug("Connect extra: " . $connection{"extra"} . "\n");
+        $sshline = $sshline .  ' "' . $connection{"extra"} . ' \"' . $sshcmd . ' \" "';
+} else {
+        $sshline = $sshline .  " \"" . $sshcmd . "\"";
+}
+
+&debug("ssh command line: " . $sshline);
+
+$result = `$sshline`;
+
+if ($result =~ /\@\@\@\@/) {
+        $SSHPERFstatus = "0"; # 0 = ok, 1 = warn, 2 = crit
+        $SSHPERFmessage = ""; # 0 = ok, 1 = warn, 2 = crit
+} else {
+        $SSHPERFstatus = 2;
+        $SSHPERFmessage = "Couldn't connect to " . $connection{"host"};
+}
+
+my (@results) = split(/\@\@\@\@/, $result);
+my $res = shift(@results); #the first result is trash
+
+foreach (keys(%commands)) {
+        $res = shift(@results);
+        &debug("Parsing for $_");
+        if ($_ eq "uptime") {
+                &ParseUptime($res);
+        } elsif ($_ eq "ps") {
+                &ParsePs($res);
+        } elsif ($_ eq "vmstat") {
+                &ParseVmstat($res);
+        } elsif ($_ eq "free") {
+                &ParseFree($res);
+        } elsif ($_ eq "zimbra-services") {
+                &ParseZMservices($res);
+        } elsif ($_ eq "zimbra-queues") {
+                &ParseZMqueues($res);
+        } elsif ($_ eq "df") {
+                &ParseDf($res);
+        } elsif ($_ eq "mailq") {
+                &ParseMailQ($res);
+        } elsif ($_ eq "top") {
+                &ParseTop($res);
+        } elsif ($_ =~ /^ping-/) {
+                &ParsePing($_, $res);
+        } elsif ($_ =~ /^fileage-/) {
+                &ParseFileage($_, $res);
+        } elsif ($_ eq "sar") {
+                &ParseSar($res);
+        } elsif ($_ =~ /local-check_smtp-(.*)/) {
+                &ParseLocalSmtp($res, $1);
+        } elsif ($_ =~ /snmp-oid-/) {
+                &ParseSnmpOid($_, $res);
+        } elsif ($_ =~ /^snmp-/) {
+                &ParseSnmp($_, $res);
+        } elsif ($_ =~ /^int-(\S+)/) {
+                &ParseInterface($1, $res);
+        } elsif ($_ eq "mysql") {
+                &ParseMysqlStatus($res);
+        } elsif ($_ eq "swapinfo") {
+		&ParseSwapinfo($res);
+	} else {
+                &debug("Unknown command: $_");
+                die("Unknown command: $_");
+        }
+# XXX NEW
+
+}
+
+
+foreach $test (keys(%tests)) {
+        # print "doing result: $test \n";
+        # next if ($warn == -1);
+        if ($test eq "load-5minave") {
+                ($warn, $crit) = split('~', $tests{$test});
+                if ($ans{"load-5minave"} >= $crit) {
+                        $ret = 2;
+                } elsif ($ans{"load-5minave"} >= $warn) {
+                        $ret = 1;
+                } else {
+                        $ret = 0;
+                }
+                &SubmitPassive("load-5minave", $ret, "5 minute load is " . $ans{"load-5minave"} . "|load-5minave=" . $ans{"load-5minave"} . ",load-15minave=" . $ans{"load-15minave"});
+        } elsif ($test eq "cpu-idlepct") {
+                ($warn, $crit) = split('~', $tests{$test});
+                if ($ans{"cpu-idlepct"} <= $crit) {
+                        $ret = 2;
+                } elsif ($ans{"cpu-idlepct"} <= $warn) {
+                        $ret = 1;
+                } else {
+                        $ret = 0;
+                }
+
+                $perfinfo="cpu-idlepct=" . $ans{"cpu-idlepct"} . ",cpu-userpct=" . $ans{"cpu-userpct"} . ",cpu-syspct=" . $ans{"cpu-syspct"};
+                if (defined($ans{"cpu-waitpct"})) {
+                        $perfinfo.=",cpu-waitpct=" . $ans{"cpu-waitpct"};
+                }
+                &SubmitPassive("cpu-idlepct", $ret, "CPU idle time is " . $ans{"cpu-idlepct"} . "%|".$perfinfo);
+
+        } elsif ($test eq "mem-free") {
+                ($warn, $crit) = split('~', $tests{$test});
+                if ($ans{"mem-free"} <= $crit) {
+                        $ret = 2;
+                } elsif ($ans{"mem-free"} <= $warn) {
+                        $ret = 1;
+                } else {
+                        $ret = 0;
+                }
+                &SubmitPassive("mem-free", $ret, "Free memory (" . $ans{"mem-free"} . " / " . $ans{"mem-total"} . ") |mem-free=" . $ans{"mem-free"} . ",mem-total=" . $ans{"mem-total"} );
+        } elsif ($test =~ /proc-exists-(.*)/) {
+                ($numprocs, $procname) = split('~', $tests{$test});
+
+                @processes = split /\n/, $ans{"psout"};
+                $count = grep /$procname/, @processes;
+
+                &debug("proc-exists: Found $count processes \n");
+
+                if ($count < $numprocs) {
+                        $ret = 2;
+                } else {
+                        $ret = 0;
+                }
+                &SubmitPassive("proc-exists-$procname", $ret, "Number of procs with name $procname : " . $count );  
+        } elsif ($test eq "swap-free") {
+                ($warn, $crit) = split('~', $tests{$test});
+                if ($ans{"swap-free"} <= $crit) {
+                        $ret = 2;
+                } elsif ($ans{"swap-free"} <= $warn) {
+                        $ret = 1;
+                } else {
+                        $ret = 0;
+                }
+                &SubmitPassive("swap-free", $ret, "Free swap (" . $ans{"swap-free"} . " / " . $ans{"swap-total"} . ") |swap-free=" . $ans{"swap-free"} . ",swap-total=" . $ans{"swap-total"} );
+        } elsif ($test eq "zimbra-services") {
+                if ($ans{"zimbra-services"} eq "OK") {
+                        $ret = 0;
+                        &SubmitPassive("zimbra-services", $ret, "Zimbra services A-OK!");
+                } else {
+                        $ret = 2;
+                        &SubmitPassive("zimbra-services", $ret, "Zimbra services CRITICAL: ".$ans{"zimbra-services"});
+                }
+        } elsif ($test eq "mailq") {
+                if ($ans{"mailq"} >= 0 ) {
+                        my ($warn, $crit) = split('~', $tests{$test});
+                        if ($ans{"mailq"} >= $crit) {
+                                $ret = 2;
+                                &SubmitPassive("mailq", $ret, "MailQ really jammed up: ".$ans{"mailq"}." messages|mailq_size=".$ans{"mailq"});
+                        } elsif ($ans{"mailq"} >= $warn) {
+                                $ret = 1;
+                                &SubmitPassive("mailq", $ret, "MailQ gettin' full: ".$ans{"mailq"}." messages|mailq_size=".$ans{"mailq"});
+                        } else {
+                                $ret = 0;
+                                &SubmitPassive("mailq", $ret, "MailQ lookin' good: ".$ans{"mailq"}." messages|mailq_size=".$ans{"mailq"});
+                        }
+                } else {
+                        $ret = 1;
+                        &SubmitPassive("mailq", $ret, "MailQ parsing problem.");
+                }
+        } elsif ($test eq "zimbra-queues") {
+                my ($warn, $crit) = split('~', $tests{$test});
+                if ($ans{"zimbra-queues"} eq "OK") {
+                        # now check if any q length is too long
+                        $ret=0;
+                        @submittxt=(); @perftxt=();
+                        foreach $tmpansname (keys(%ans)) {
+                                if ($tmpansname =~ /^zmq-(\S+)/) {
+                                        &debug("Queue: ".$1."=".$ans{$tmpansname}." (w=".$warn.",c=".$crit.")");
+                                        if ($ans{$tmpansname} >= $crit) {
+                                                push @submittxt, $1." queue at ".$ans{$tmpansname}." messages!!";
+                                                if ($ret<2) { $ret = 2; }
+                                        } elsif ($ans{$tmpansname} >= $warn) {
+                                                push @submittxt, $1." queue at ".$ans{$tmpansname}." messages";
+                                                if ($ret<1) { $ret = 1; }
+                                        }
+                                        push @perftxt, $tmpansname."=".$ans{$tmpansname};
+                                }
+                        }
+                        if ($ret==0) {
+                                &SubmitPassive("zimbra-queues", $ret, "Zimbra queues healthy! |".join(',',@perftxt));
+                        } elsif ($ret==1) {
+                                &SubmitPassive("zimbra-queues", $ret, "Zimbra queues warning: ".join(',',@submittxt)."|".join(',',@perftxt));
+                        } else {
+                                &SubmitPassive("zimbra-queues", $ret, "Zimbra queues critical: ".join(',',@submittxt)."|".join(',',@perftxt));
+                        }
+
+                } else {
+                        $ret = 1;
+                        &SubmitPassive("zimbra-queues", $ret, "Zimbra queue check problem: ".$ans{"zimbra-queues"});
+                }
+        } elsif ($test eq "mem-freepct") {
+                ($warn, $crit) = split('~', $tests{$test});
+                if ($ans{"mem-freepct"} <= $crit) {
+                        $ret = 2;
+                } elsif ($ans{"mem-freepct"} <= $warn) {
+                        $ret = 1;
+                } else {
+                        $ret = 0;
+                }
+                &SubmitPassive("mem-freepct", $ret, "Free memory " . sprintf("%02.2f", $ans{"mem-freepct"}) . "% |mem-freepct=" . $ans{"mem-freepct"} );
+        } elsif ($test eq "swap-freepct") {
+                ($warn, $crit) = split('~', $tests{$test});
+                if ($ans{"swap-freepct"} <= $crit) {
+                        $ret = 2;
+                } elsif ($ans{"swap-freepct"} <= $warn) {
+                        $ret = 1;
+                } else {
+                        $ret = 0;
+                }
+                &SubmitPassive("swap-freepct", $ret, "Free swap " . sprintf("%02.2f", $ans{"swap-freepct"}) . "% |swap-freepct=" . $ans{"swap-freepct"} );
+        } elsif ($test =~ /disk-usedpct-(.*)/) {
+                ($warn, $crit) = split('~', $tests{$test});
+		if (!exists $ans{$test}) {
+			$ret = 2;
+			&SubmitPassive("disk-usedpct-" . $1, $ret, "Filesystem $1 doesn't appear to be mounted. |disk-usedpct-" . $1 . "=" . sprintf("%02.0f", $ans{$test}));
+		} else {
+                	if ($ans{$test} >= $crit) {
+                        	$ret = 2;
+                	} elsif ($ans{$test} >= $warn) {
+                        	$ret = 1;
+			} else {
+                        	$ret = 0;
+                	}
+                	&SubmitPassive("disk-usedpct-" . $1, $ret, "Space used on filesystem $1: " . sprintf("%02.0f", $ans{$test}) . "% |disk-usedpct-" . $1 . "=" . sprintf("%02.0f", $ans{$test}));
+		}
+        } elsif ($test =~ /^ping-(.*)/) {
+                if ($ans{$test} == 0) {
+                        $ret = 0;
+                        &SubmitPassive($test , $ret, "Ping of $1 successful");
+                } else {
+                        $ret = 2;
+                        &SubmitPassive($test, $ret, "Ping of $1 failed");
+                }
+        } elsif ($test =~ /^fileage-(.*)/) {
+                ($warn, $crit) = split('~', $tests{$test});
+                if ($ans{$test} >= $crit) { $ret = 2;
+                } elsif ($ans{$test} >= $warn) { $ret = 1;
+                } else { $ret = 0;
+                }
+                if ($ans{$test} <= 0) { $ans{$test} = 0; }
+                &SubmitPassive("fileage-".$1, $ret, "File age for $1: ".$ans{$test}. " seconds|fileage-".$1."=".$ans{$test});
+        } elsif ($test =~ /local-check_smtp-(.*)/) {
+                if ($ans{$test} == -1) {
+                        $ret = 2;
+                        &SubmitPassive("SMTP" , $ret, "Invalid SMTP response");
+                } elsif ($ans{$test} == -2) {
+                        $ret = 2;
+                        &SubmitPassive("SMTP", $ret, "Connection refused by host");
+                } elsif ($ans{$test} < -2) {
+                        $ret = 2;
+                        &SubmitPassive("SMTP", $ret, "Unknown error");
+                } else {
+                        $ret = 0;
+                        &SubmitPassive("SMTP", $ret, "Response time " . $ans{$test} . " seconds");
+                }
+        } elsif ($test =~ /^snmp-/) {
+                if ($test eq "snmp-winprocessorload") {
+                        my ($h, $comm, $warn, $crit) = split("~", $tests{$test});
+                        if ($ans{$test} >= $crit) {
+                                $ret = 2;
+                        } elsif ($ans{$test} >= $warn) {
+                                $ret = 1;
+                        } else {
+                                $ret = 0;
+                        }
+                        &SubmitPassive($test, $ret, "Processor load: " . $ans{$test} . " |winprocessorload=" . $ans{$test});
+                } elsif ($test eq "snmp-winsystemnumusers") {
+                        my ($h, $comm, $warn, $crit) = split("~", $tests{$test});
+                        if ($ans{$test} >= $crit) {
+                                $ret = 2;
+                        } elsif ($ans{$test} >= $warn) {
+                                $ret = 1;
+                        } else {
+                                $ret = 0;
+                        }
+                        &SubmitPassive($test, $ret, "Number of users: " . $ans{$test} . " |winsystemnumusers=" . $ans{$test});
+                } elsif ($test eq "snmp-winsystemprocesses") {
+                        my ($h, $comm, $warn, $crit) = split("~", $tests{$test});
+                        if ($ans{$test} >= $crit) {
+                                $ret = 2;
+                        } elsif ($ans{$test} >= $warn) {
+                                $ret = 1;
+                        } else {
+                                $ret = 0;
+                        }
+                        &SubmitPassive($test, $ret, "Number of processes: " . $ans{$test} . " |winsystemprocesses=" . $ans{$test});
+                } elsif ($test eq "snmp-wintcpcurrestab") {
+                        my ($h, $comm, $warn, $crit) = split("~", $tests{$test});
+                        if ($ans{$test} >= $crit) {
+                                $ret = 2;
+                        } elsif ($ans{$test} >= $warn) {
+                                $ret = 1;
+                        } else {
+                                $ret = 0;
+                        }
+                        &SubmitPassive($test, $ret, "Established TCP sessions: " . $ans{$test} . " |wintcpcurrestab=" . $ans{$test});
+                } elsif ($test eq "snmp-ioscpu5min") {
+                        my ($h, $comm, $warn, $crit) = split("~", $tests{$test});
+                        if ($ans{$test} >= $crit) {
+                                $ret = 2;
+                        } elsif ($ans{$test} >= $warn) {
+                                $ret = 1;
+                        } else {
+                                $ret = 0;
+                        }
+                        &SubmitPassive($test, $ret, "CPU util (5 min ave): " . $ans{$test} . " |cpu5min=" . $ans{$test});
+                } elsif ($test eq "snmp-iosmem5minused") {
+                        my ($h, $comm, $warn, $crit) = split("~", $tests{$test});
+                        if ($ans{$test} >= $crit) {
+                                $ret = 2;
+                        } elsif ($ans{$test} >= $warn) {
+                                $ret = 1;
+                        } else {
+                                $ret = 0;
+                        }
+                        &SubmitPassive($test, $ret, "Mem used (5 min ave): " . $ans{$test} . " |mem5minused=" . $ans{$test});
+                } elsif ($test eq "snmp-iosmem5minfree") {
+                        my ($h, $comm, $warn, $crit) = split("~", $tests{$test});
+                        if ($ans{$test} <= $crit) {
+                                $ret = 2;
+                        } elsif ($ans{$test} <= $warn) {
+                                $ret = 1;
+                        } else {
+                                $ret = 0;
+                        }
+                        &SubmitPassive($test, $ret, "Mem free (5 min ave): " . $ans{$test} . " |mem5minfree=" . $ans{$test});
+                } elsif ($test =~ /snmp-oid-(\S+)/) {
+                        my $oidname = $1;
+                        my ($h, $comm, $warn, $crit, $oid) = split("~", $tests{$test});
+                        if ($ans{$test} <= $crit) {
+                                $ret = 2;
+                        } elsif ($ans{$test} <= $warn) {
+                                $ret = 1;
+                        } else {
+                                $ret = 0;
+                        }
+                        if ($oidname =~ /\S+-outoctects/) {
+                                $ans_tmp = $ans{$test};
+                                $ans_readable = ($ans_tmp/1000) . " k";
+                        } else {
+                                $ans_readable = $ans{$test};
+                        }
+                        &SubmitPassive($oidname, $ret, $oidname . ": " . $ans_readable . " |" . $oidname . "=" . $ans{$test});
+                }
+        } elsif ($test =~ /^sar-/) {
+                ($warn, $crit) = split('~', $tests{$test});
+                if ($ans{$test} <= $crit) {
+                        $ret = 2;
+                } elsif ($ans{$test} <= $warn) {
+                        $ret = 1;
+                } else {
+                        $ret = 0;
+                }
+                $ret = 0;
+                &SubmitPassive( $test, $ret, "$test: $ans{$test} |" . $test . "=" . $ans{$test});
+        } elsif ($test eq "mysql") {
+                ($user, $pass, $queries_w, $queries_c) = split('~', $tests{$test});
+                if ($ans{"mysql-uptime"} < 0) {
+                        $ret = 2;
+                        $string = "Unable to check mysql status";
+                } else {
+                        my $perfinfo = "mysql-uptime=".$ans{"mysql-uptime"}.",mysql-queries=".$ans{"mysql-queries"}.",mysql-opentables=".$ans{"mysql-opentables"}.",mysql-threads=".$ans{"mysql-threads"}.",mysql-questions=".$ans{"mysql-questions"}.",mysql-opens=".$ans{"mysql-opens"}.",mysql-flushtables=".$ans{"mysql-flushtables"};
+                        if ($ans{"mysql-queries"} > $queries_c) {
+                                $ret = 2;
+                                $string = "MySQL too many queries/sec: " . $ans{"mysql-queries"} . " |".$perfinfo;
+                        } elsif ($ans{"mysql-queries"} > $queries_w) {
+                                if ($ret < 1) { $ret = 1; }
+                                $string = "MySQL too many queries/sec: " . $ans{"mysql-queries"} . " |".$perfinfo;
+                        } else {
+                                $string = "MySQL okay: " . $ans{"mysql-queries"} . " queries/sec |".$perfinfo;
+                        }
+                }
+                &SubmitPassive( $test, $ret, $string);
+
+        } elsif ($test =~ /^int-(\S+)/) {
+                if (defined($ans{$test . "-rxbytes"}) && ($ans{$test . "-rxbytes"} > 1)) {
+                        $ret = 0;
+                } else {
+                        $ret = 2;
+                }
+                &SubmitPassive($test, $ret, "$test |" . $test . "-rxbytes=" . $ans{$test . "-rxbytes"} . "," . $test . "-rxpkts=" . $ans{$test . "-rxpkts"} . "," . $test . "-rxerrs=" . $ans{$test . "-rxerrs"} . "," . $test . "-txbytes=" . $ans{$test . "-txbytes"} . "," . $test . "-txpkts=" . $ans{$test . "-txpkts"} . "," . $test . "-txerrs=" . $ans{$test . "-txerrs"});
+
+        } else { die("error: unknown test type: $test\n"); }
+# XXX NEW
+
+}
+
+if ($SSHPERFstatus > 1) {
+        &Log("SSHPERF CRITICAL - " . $SSHPERFmessage);
+        print("SSH CRITICAL - " . $SSHPERFmessage . "\n") if ($SILENT != 1);
+        exit(2);
+} elsif ($SSHPERFstatus == 1) {  # NOT USED TODAY
+        &Log("SSHPERF WARNING - " . $SSHPERFmessage);
+        print("SSH WARNING - " . $SSHPERFmessage . "\n") if ($SILENT != 1);
+        exit(1);
+} else {        # ($SSHPERFstatus == 0)
+        &Log("SSHPERF OKAY - " . $SSHPERFmessage);
+        print("SSH OKAY - " . $SSHPERFmessage . "\n") if ($SILENT != 1);
+}
+
+exit 0;
+
+#######################
+
+sub ParsePs() {
+        my @processes = @_;
+
+        foreach (@processes) {
+                $ans{"psout"} .= $_;
+        }
+
+}
+
+sub ParseVmstat() {
+        my ($line) = @_;
+        @lines = split(/\n/, $line);
+        &debug("ParseVmstat: parsing: $lines[4]");
+
+        if (($connection{"osversion"} eq "linux-rh9") && ($lines[4] =~ /^\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+(\d+)\s+(\d+)\s+(\d+)\s+\d+/)) {
+                $ans{"cpu-userpct"} = $1;
+                $ans{"cpu-syspct"} = $2;
+                $ans{"cpu-idlepct"} = $3;
+                $ans{"cpu-waitpct"} = 0;
+                &debug("ParseVmstat: found user, sys, idle: $1, $2, $3, 0");
+        } elsif (($connection{"osversion"} =~ /^linux-rhel/) && ($lines[4] =~ /^\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)/)) {
+                $ans{"cpu-userpct"} = $1;
+                $ans{"cpu-syspct"} = $2;
+                $ans{"cpu-idlepct"} = $3;
+                $ans{"cpu-waitpct"} = $4;
+                &debug("ParseVmstat: found user, sys, idle, wait: $1, $2, $3, $4");
+        } elsif (($connection{"osversion"} =~ /linux-rh-longdf/) && ($lines[4] =~ /^\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)/)) {
+                $ans{"cpu-userpct"} = $1;
+                $ans{"cpu-syspct"} = $2;
+                $ans{"cpu-idlepct"} = $3;
+                $ans{"cpu-waitpct"} = $4;
+                &debug("ParseVmstat: found user, sys, idle, wait: $1, $2, $3, $4");
+        } elsif (($connection{"osversion"} =~ /linux-rh/) && ($lines[4] =~ /^\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+(\d+)\s+(\d+)\s+(\d+)/)) {
+                $ans{"cpu-userpct"} = $1;
+                $ans{"cpu-syspct"} = $2;
+                $ans{"cpu-idlepct"} = $3;
+                $ans{"cpu-waitpct"} = 0;
+                &debug("ParseVmstat: found user, sys, idle: $1, $2, $3, 0");
+        } elsif (($connection{"osversion"} =~ /^solaris-/) && ($lines[4] =~ /^\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+(\d+)\s+(\d+)\s+(\d+)/)) {
+                $ans{"cpu-userpct"} = $1;
+                $ans{"cpu-syspct"} = $2;
+                $ans{"cpu-idlepct"} = $3;
+                $ans{"cpu-waitpct"} = 0;
+                &debug("ParseVmstat: found user, sys, idle: $1, $2, $3, 0");
+        } elsif (($connection{"osversion"} =~ /^hp-ux/) && ($lines[4] =~ /^\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+(\d+)\s+(\d+)\s+(\d+)/)) {
+		$ans{"cpu-userpct"} = $1;
+		$ans{"cpu-syspct"} = $2;
+                $ans{"cpu-idlepct"} = $3;
+                $ans{"cpu-waitpct"} = 0;
+                &debug("ParseVmstat: found user, sys, idle: $1, $2, $3, 0");
+	} else {
+                if ($SSHPERFstatus < 1) { $SSHPERFstatus = 1; $SSHPERFmessage = "Couldn't parse vmstat output."; &Log($SSHPERFmessage);}
+        }
+}
+
+sub ParseSar() {
+        my ($line) = @_;
+        # @lines = split(/\n/, $line);
+
+        if ($connection{"osversion"} =~ /linux-rh/) {
+                #bull.atrust.com        600     1067843400      -       pgpgin/s        0.00
+                my (@tmp) = grep("proc/s", $line);
+                if ($line =~ /\S+\s+\S+\s+\S+\s+\S+\s+proc\/s\s+(\S+)/) {
+                        &debug("ParseSar found proc/s: $1");
+                        $ans{"sar-procs"} = $1;
+                }
+                if ($line =~ /\S+\s+\S+\s+\S+\s+\S+\s+cswch\/s\s+(\S+)/) {
+                        &debug("ParseSar found cswch/s: $1");
+                        $ans{"sar-cswchs"} = $1;
+                }
+                if ($line =~ /\S+\s+\S+\s+\S+\s+\S+\s+intr\/s\s+(\S+)/) {
+                        &debug("ParseSar found intr/s: $1");
+                        $ans{"sar-intrs"} = $1;
+                }
+                if ($line =~ /\S+\s+\S+\s+\S+\s+\S+\s+pgpgin\/s\s+(\S+)/) {
+                        &debug("ParseSar found pgpgin/s: $1");
+                        $ans{"sar-pgpgins"} = $1;
+                }
+                if ($line =~ /\S+\s+\S+\s+\S+\s+\S+\s+pgpgout\/s\s+(\S+)/) {
+                        &debug("ParseSar found pgpgout/s: $1");
+                        $ans{"sar-pgpgouts"} = $1;
+                }
+                if ($line =~ /\S+\s+\S+\s+\S+\s+\S+\s+activepg\s+(\S+)/) {
+                        &debug("ParseSar found activepg: $1");
+                        $ans{"sar-activepg"} = $1;
+                }
+                if ($line =~ /\S+\s+\S+\s+\S+\s+\S+\s+inadtypg\s+(\S+)/) {
+                        &debug("ParseSar found inadtypg: $1");
+                        $ans{"sar-inadtypg"} = $1;
+                }
+                if ($line =~ /\S+\s+\S+\s+\S+\s+\S+\s+inaclnpg\s+(\S+)/) {
+                        &debug("ParseSar found inaclnpg: $1");
+                        $ans{"sar-inaclnpg"} = $1;
+                }
+                if ($line =~ /\S+\s+\S+\s+\S+\s+\S+\s+inatarpg\s+(\S+)/) {
+                        &debug("ParseSar found inatarpg: $1");
+                        $ans{"sar-inatarpg"} = $1;
+                }
+                if ($line =~ /\S+\s+\S+\s+\S+\s+\S+\s+pswpin\/s\s+(\S+)/) {
+                        &debug("ParseSar found pswpins: $1");
+                        $ans{"sar-pswpins"} = $1;
+                }
+                if ($line =~ /\S+\s+\S+\s+\S+\s+\S+\s+pswpout\/s\s+(\S+)/) {
+                        &debug("ParseSar found pswpouts: $1");
+                        $ans{"sar-pswpouts"} = $1;
+                }
+                if ($line =~ /\S+\s+\S+\s+\S+\s+\S+\s+tps\s+(\S+)/) {
+                        &debug("ParseSar found tps: $1");
+                        $ans{"sar-tps"} = $1;
+                }
+                if ($line =~ /\S+\s+\S+\s+\S+\s+\S+\s+rtps\s+(\S+)/) {
+                        &debug("ParseSar found rtps: $1");
+                        $ans{"sar-rtps"} = $1;
+                }
+                if ($line =~ /\S+\s+\S+\s+\S+\s+\S+\s+wtps\s+(\S+)/) {
+                        &debug("ParseSar found wtps: $1");
+                        $ans{"sar-wtps"} = $1;
+                }
+                if ($line =~ /\S+\s+\S+\s+\S+\s+\S+\s+bread\/s\s+(\S+)/) {
+                        &debug("ParseSar found breads: $1");
+                        $ans{"sar-breads"} = $1;
+                }
+                if ($line =~ /\S+\s+\S+\s+\S+\s+\S+\s+bwrtn\/s\s+(\S+)/) {
+                        &debug("ParseSar found bwrtns: $1");
+                        $ans{"sar-bwrtns"} = $1;
+                }
+                if ($line =~ /\S+\s+\S+\s+\S+\s+\S+\s+frmpg\/s\s+(\S+)/) {
+                        &debug("ParseSar found frmpgs: $1");
+                        $ans{"sar-frmpgs"} = $1;
+                }
+                if ($line =~ /\S+\s+\S+\s+\S+\s+\S+\s+shmpg\/s\s+(\S+)/) {
+                        &debug("ParseSar found shmpgs: $1");
+                        $ans{"sar-shmpgs"} = $1;
+                }
+                if ($line =~ /\S+\s+\S+\s+\S+\s+\S+\s+bufpg\/s\s+(\S+)/) {
+                        &debug("ParseSar found bufpgs: $1");
+                        $ans{"sar-bufpgs"} = $1;
+                }
+                if ($line =~ /\S+\s+\S+\s+\S+\s+\S+\s+campg\/s\s+(\S+)/) {
+                        &debug("ParseSar found campgs: $1");
+                        $ans{"sar-campgs"} = $1;
+                }
+                if ($line =~ /\S+\s+\S+\s+\S+\s+\S+\s+kbmemfree\s+(\S+)/) {
+                        &debug("ParseSar found kbmemfree: $1");
+                        $ans{"sar-kbmemfree"} = $1;
+                }
+                if ($line =~ /\S+\s+\S+\s+\S+\s+\S+\s+kbmemused\s+(\S+)/) {
+                        &debug("ParseSar found kbmemused: $1");
+                        $ans{"sar-kbmemused"} = $1;
+                }
+                if ($line =~ /\S+\s+\S+\s+\S+\s+\S+\s+%memused\s+(\S+)/) {
+                        &debug("ParseSar found pctmemused: $1");
+                        $ans{"sar-pctmemused"} = $1;
+                }
+                if ($line =~ /\S+\s+\S+\s+\S+\s+\S+\s+kbmemshrd\s+(\S+)/) {
+                        &debug("ParseSar found kbmemused: $1");
+                        $ans{"sar-kbmemused"} = $1;
+                }
+                if ($line =~ /\S+\s+\S+\s+\S+\s+\S+\s+kbbuffers\s+(\S+)/) {
+                        &debug("ParseSar found kbmemfree: $1");
+                        $ans{"sar-kbmemfree"} = $1;
+                }
+                if ($line =~ /\S+\s+\S+\s+\S+\s+\S+\s+kbcached\s+(\S+)/) {
+                        &debug("ParseSar found kbmemused: $1");
+                        $ans{"sar-kbmemused"} = $1;
+                }
+                if ($line =~ /\S+\s+\S+\s+\S+\s+\S+\s+kbswpfree\s+(\S+)/) {
+                        &debug("ParseSar found kbmemfree: $1");
+                        $ans{"sar-kbmemfree"} = $1;
+                }
+                if ($line =~ /\S+\s+\S+\s+\S+\s+\S+\s+kbswpused\s+(\S+)/) {
+                        &debug("ParseSar found kbmemused: $1");
+                        $ans{"sar-kbmemused"} = $1;
+                }
+                if ($line =~ /\S+\s+\S+\s+\S+\s+\S+\s+%swpused\s+(\S+)/) {
+                        &debug("ParseSar found pctswpused: $1");
+                        $ans{"sar-pctswpused"} = $1;
+                }
+                if ($line =~ /\S+\s+\S+\s+\S+\s+\S+\s+dentunusd\s+(\S+)/) {
+                        &debug("ParseSar found dentunusd: $1");
+                        $ans{"sar-dentunusd"} = $1;
+                }
+                if ($line =~ /\S+\s+\S+\s+\S+\s+\S+\s+file-sz\s+(\S+)/) {
+                        &debug("ParseSar found filesz: $1");
+                        $ans{"sar-filesz"} = $1;
+                }
+                if ($line =~ /\S+\s+\S+\s+\S+\s+\S+\s+%file-sz\s+(\S+)/) {
+                        &debug("ParseSar found pctfilesz: $1");
+                        $ans{"sar-pctfilesz"} = $1;
+                }
+                if ($line =~ /\S+\s+\S+\s+\S+\s+\S+\s+inode-sz\s+(\S+)/) {
+                        &debug("ParseSar found inodesz: $1");
+                        $ans{"sar-inodesz"} = $1;
+                }
+                # super-sz        0
+                # %super-sz       0.00
+                # dquot-sz        0
+                # %dquot-sz       0.00
+                # rtsig-sz        0
+                # %rtsig-sz       0.00
+                if ($line =~ /\S+\s+\S+\s+\S+\s+\S+\s+totsck\s+(\S+)/) {
+                        &debug("ParseSar found totsck: $1");
+                        $ans{"sar-totsck"} = $1;
+                }
+                if ($line =~ /\S+\s+\S+\s+\S+\s+\S+\s+tcpsck\s+(\S+)/) {
+                        &debug("ParseSar found tcpsck: $1");
+                        $ans{"sar-tcpsck"} = $1;
+                }
+                if ($line =~ /\S+\s+\S+\s+\S+\s+\S+\s+udpsck\s+(\S+)/) {
+                        &debug("ParseSar found udpsck: $1");
+                        $ans{"sar-udpsck"} = $1;
+                }
+                if ($line =~ /\S+\s+\S+\s+\S+\s+\S+\s+rawsck\s+(\S+)/) {
+                        &debug("ParseSar found rawsck: $1");
+                        $ans{"sar-rawsck"} = $1;
+                }
+                if ($line =~ /\S+\s+\S+\s+\S+\s+\S+\s+ip-frag\s+(\S+)/) {
+                        &debug("ParseSar found ipfrag: $1");
+                        $ans{"sar-ipfrag"} = $1;
+                }
+                if ($line =~ /\S+\s+\S+\s+\S+\s+\S+\s+runq-sz\s+(\S+)/) {
+                        &debug("ParseSar found runq-sz: $1");
+                        $ans{"sar-runqsz"} = $1;
+                }
+                if ($line =~ /\S+\s+\S+\s+\S+\s+\S+\s+plist-sz\s+(\S+)/) {
+                        &debug("ParseSar found plist-sz: $1");
+                        $ans{"sar-plistsz"} = $1;
+                }
+                # ldavg-1       0.00
+                # if ($line =~ /\S+\s+\S+\s+\S+\s+\S+\s+ldavg-5\s+(\S+)/) {
+                        # &debug("ParseSar found ldavg-5: $1");
+                        # $ans{"sar-ldavg5"} = $1;
+                # }
+
+        } elsif ($connection{"osversion"} =~ /^solaris-/) {
+                @lines = split(/\n/, $line);
+                if ($lines[1] =~ /pctusr\s+pctsys\s+pctwio\s+pctidle\s+runqsz.*ovszallocfail\s+fiveminload\s+fifteenminload/) {
+
+                        ($ans{"sar-pctusr"}, $ans{"sar-pctsys"}, $ans{"sar-pctwio"}, $ans{"sar-pctidle"}, $ans{"sar-runqsz"}, $ans{"sar-pctrunocc"}, $ans{"sar-breads"}, $ans{"sar-lreads"}, $ans{"sar-pctrcache"}, $ans{"sar-bwrits"}, $ans{"sar-lwrits"}, $ans{"sar-pctwcache"}, $ans{"sar-preads"}, $ans{"sar-pwrits"}, $ans{"sar-pswpins"}, $ans{"sar-pswpouts"}, $ans{"sar-bswins"}, $ans{"sar-bswots"}, $ans{"sar-pswchs"}, $ans{"sar-scalls"}, $ans{"sar-sreads"}, $ans{"sar-swrits"}, $ans{"sar-forks"}, $ans{"sar-execs"}, $ans{"sar-rchars"}, $ans{"sar-wchars"}, $ans{"sar-igets"}, $ans{"sar-nameis"}, $ans{"sar-dirbks"}, $ans{"sar-rawchs"}, $ans{"sar-canchs"}, $ans{"sar-outchs"}, $ans{"sar-rcvins"}, $ans{"sar-xmtins"}, $ans{"sar-mdmins"}, $ans{"sar-procsz"}, $ans{"sar-procszmax"}, $ans{"sar-procszov"}, $ans{"sar-inodsz"}, $ans{"sar-inodszmax"}, $ans{"sar-inodszov"}, $ans{"sar-filesz"}, $ans{"sar-fileszmax"}, $ans{"sar-fileszov"}, $ans{"sar-locksz"}, $ans{"sar-lockszmax"}, $ans{"sar-msgs"}, $ans{"sar-semas"}, $ans{"sar-runqsz"}, $ans{"sar-pctrunocc"}, $ans{"sar-pgouts"}, $ans{"sar-ppgouts"}, $ans{"sar-pgfrees"}, $ans{"sar-pgscans"}, $ans{"sar-pctufsipf"}, $ans{"sar-freemem"}, $ans{"sar-freeswap"}, $ans{"sar-smlmem"}, $ans{"sar-smlmemalloc"}, $ans{"sar-smlmemfail"}, $ans{"sar-lgmem"}, $ans{"sar-lgmemalloc"}, $ans{"sar-lgmemfail"}, $ans{"sar-ovszalloc"}, $ans{"sar-ovszallocfail"}, $ans{"sar-fiveminload"}, $ans{"sar-fifteenminload"}) = split(/\s+/, $lines[2]);
+                        &debug("ParseSar found solaris collect_stats.pl output. 5 min load: " . $ans{"sar-fiveminload"});
+                } else {
+                        &debug("ParseSar couldnt parse collect_stats.pl output: $lines[1]");
+                }
+
+        } else {
+                if ($SSHPERFstatus < 1) { $SSHPERFstatus = 1; $SSHPERFmessage = "Couldn't parse sar output."; &Log($SSHPERFmessage);}
+        }
+}
+
+sub ParsePing() {
+        my ($test, $line) = @_;
+
+        my @lines = split(/\n/, $line);
+        my $res = $lines[4];
+
+        &debug("ParsePing: parsing: $res");
+
+        if ($res =~ /1 packets transmitted, 1 packets received, (\S+)% packet loss/) {
+                &debug("ParsePing: found ping packet loss: $1 %");
+                $ans{$test} = $1;
+        } elsif ($res =~ /1 packets transmitted, 1 received, (\S+)% packet loss/) {
+                &debug("ParsePing: found ping packet loss: $1 %");
+                $ans{$test} = $1;
+        } else {
+                &debug("ParsePing: ping failed: $res");
+                $ans{$test} = 100;
+        }
+
+}
+
+sub ParseZMqueues() {
+        my ($line) = @_;
+        my @errors = ();
+        my @results = split(/UUUU/,$line);
+
+        if ($results[0]=~/TOTAL\s+(\d+)/) {
+                &debug("Deferred queue length: ".$1); $ans{'zmq-deferred'} = $1;
+        } else {
+                my $errmsg = "Deferred queue parse error: ".$results[0];
+                push @errors, $errmsg; &debug("ParseZMqueues: ".$errmsg);
+        }
+        if ($results[1]=~/TOTAL\s+(\d+)/) {
+                &debug("Hold queue length: ".$1); $ans{'zmq-hold'} = $1;
+        } else {
+                my $errmsg = "Hold queue parse error: ".$results[1];
+                push @errors, $errmsg; &debug("ParseZMqueues: ".$errmsg);
+        }
+        if ($results[2]=~/TOTAL\s+(\d+)/) {
+                &debug("Incoming queue length: ".$1); $ans{'zmq-incoming'} = $1;
+        } else {
+                my $errmsg = "Incoming queue parse error: ".$results[2];
+                push @errors, $errmsg; &debug("ParseZMqueues: ".$errmsg);
+        }
+        if ($results[3]=~/TOTAL\s+(\d+)/) {
+                &debug("Active queue length: ".$1); $ans{'zmq-active'} = $1;
+        } else {
+                my $errmsg = "Active queue parse error: ".$results[3];
+                push @errors, $errmsg; &debug("ParseZMqueues: ".$errmsg);
+        }
+        if ($results[4]=~/TOTAL\s+(\d+)/) {
+                &debug("Corrupt queue length: ".$1); $ans{'zmq-corrupt'} = $1;
+        } else {
+                my $errmsg = "Corrupt queue parse error: ".$results[4];
+                push @errors, $errmsg; &debug("ParseZMqueues: ".$errmsg);
+        } 
+        if (@errors>0) { $ans{'zimbra-queues'} = 'CRITICAL '.join(' ',@errors);
+        } else { $ans{'zimbra-queues'} = 'OK'; }
+}
+
+sub ParseZMservices() {
+        my ($line) = @_;
+        my @errors = ();
+        if ($line =~ /\s+antispam\s+Running/) { &debug("ParseZMservices: antispam is running!");
+        } else { my $errmsg = "Zimbra antispam is not running!";
+                push @errors, $errmsg; &debug("ParseZMservices: ".$errmsg);
+        }
+        if ($line =~ /\s+antivirus\s+Running/) { &debug("ParseZMservices: antivirus is running!");
+        } else { my $errmsg = "Zimbra antivirus is not running!";
+                push @errors, $errmsg; &debug("ParseZMservices: ".$errmsg);
+        }
+        if ($line =~ /\s+stats\s+Running/) { &debug("ParseZMservices: stats is running!");
+        } else { my $errmsg = "Zimbra stats is not running!";
+                push @errors, $errmsg; &debug("ParseZMservices: ".$errmsg);
+        }
+        if ($line =~ /\s+ldap\s+Running/) { &debug("ParseZMservices: ldap is running!");
+        } else { my $errmsg = "Zimbra ldap is not running!";
+                push @errors, $errmsg; &debug("ParseZMservices: ".$errmsg);
+        }
+        if ($line =~ /\s+logger\s+Running/) { &debug("ParseZMservices: logger is running!");
+        } else { my $errmsg = "Zimbra logger is not running!";
+                push @errors, $errmsg; &debug("ParseZMservices: ".$errmsg);
+        }
+        if ($line =~ /\s+mailbox\s+Running/) { &debug("ParseZMservices: mailbox is running!");
+        } else { my $errmsg = "Zimbra mailbox is not running!";
+                push @errors, $errmsg; &debug("ParseZMservices: ".$errmsg);
+        }
+        if ($line =~ /\s+mta\s+Running/) { &debug("ParseZMservices: mta is running!");
+        } else { my $errmsg = "Zimbra mta is not running!";
+                push @errors, $errmsg; &debug("ParseZMservices: ".$errmsg);
+        }
+        if ($line =~ /\s+snmp\s+Running/) { &debug("ParseZMservices: snmp is running!");
+        } else { my $errmsg = "Zimbra snmp is not running!";
+                push @errors, $errmsg; &debug("ParseZMservices: ".$errmsg);
+        }
+        if ($line =~ /\s+spell\s+Running/) { &debug("ParseZMservices: spell is running!");
+        } else { my $errmsg = "Zimbra spell is not running!";
+                push @errors, $errmsg; &debug("ParseZMservices: ".$errmsg);
+        }
+        if (@errors>0) { $ans{'zimbra-services'} = 'CRITICAL '.join(' ',@errors);
+        } else { $ans{'zimbra-services'} = 'OK';
+        }
+}
+
+sub ParseFileage() {
+        my ($test, $line) = @_;
+
+        @lines = split(/\n/, $line);
+        if (($lines[2]> 100) and ($lines[1] > 100)) {
+                my $ageinseconds = $lines[2]-$lines[1];
+                &debug("ParseFileage: ".$test." age=".$ageinseconds);
+                $ans{$test} = $ageinseconds;
+        } else {
+                &debug("ParseFileage: Error: ".$test);
+        }
+}
+sub ParseSnmp() {
+        my ($test, $res) = @_;
+
+        &debug("ParseSnmp: parsing: $res");
+
+
+        if ($test eq "snmp-winprocessorload") {
+                if ($res =~ /hrProcessorLoad.1\s+(\d+)/) {
+                        &debug("ParseSnmp: found processor load: $1");
+                        $ans{$test} = $1;
+                }
+        } elsif ($test eq "snmp-winsystemnumusers") {
+                if ($res =~ /hrSystemNumUsers.0\s+(\d+)/) {
+                        &debug("ParseSnmp: found num users: $1");
+                        $ans{$test} = $1;
+                }
+        } elsif ($test eq "snmp-winsystemprocesses") {
+                if ($res =~ /hrSystemProcesses.0\s+(\d+)/) {
+                        &debug("ParseSnmp: found num procs: $1");
+                        $ans{$test} = $1;
+                }
+        } elsif ($test eq "snmp-wintcpcurrestab") {
+                if ($res =~ /tcpCurrEstab.0\s+(\d+)/) {
+                        &debug("ParseSnmp: found tcp established sessions: $1");
+                        $ans{$test} = $1;
+                }
+        } elsif ($test eq "snmp-ioscpu5min") {
+                if ($res =~ /enterprises.9.2.1.57.0\s+(\d+)/) {
+                        &debug("ParseSnmp: found 5 min cpu: $1");
+                        $ans{$test} = $1;
+                }
+        } elsif ($test eq "snmp-iosmem5minused") {
+                if ($res =~ /enterprises.9.9.48.1.1.1.5.1\s+(\d+)/) {
+                        &debug("ParseSnmp: found mem 5 min used: $1");
+                        $ans{$test} = $1;
+                } else { &debug("ParseSnmp: couldn't parse: $res"); }
+        } elsif ($test eq "snmp-iosmem5minfree") {
+                if ($res =~ /enterprises.9.9.48.1.1.1.6.1\s+(\d+)/) {
+                        &debug("ParseSnmp: found mem 5 min free: $1");
+                        $ans{$test} = $1;
+                } else { &debug("ParseSnmp: couldn't parse: $res"); }
+        } else {
+                die("Unknown snmp test");
+        }
+
+}
+
+sub ParseSnmpOid() {
+        my ($test, $res, $name) = @_;
+
+        &debug("ParseSnmp: parsing: $res");
+
+        if ($test =~ /snmp-oid-(\S+)/) {
+                my $testname = $1;
+                if ($res =~ /(.*)\s+(\d+)/) {
+                        &debug("ParseSnmp: found $testname: $2");
+                        $ans{$test} = $2;
+                }
+        } else {
+                die("snmp-oid failure: $test");
+        }
+
+}
+
+sub ParseInterface() {
+        my ($int, $line) = @_;
+
+        &debug("ParseInterface: parsing: $line");
+
+# Uptime: 247894  Threads: 29  Questions: 1238341  Slow queries: 3  Opens: 46  Flush tables: 1  Open tables: 39  Queries per second avg: 4.995
+        my @values = split(/\s+/, $line);
+        ($theint, $tmp) = split(":", $values[1]);
+        $ans{"int-" . $theint . "-rxbytes"} = $tmp;
+        $ans{"int-" . $theint . "-rxpkts"} = $values[2];
+        $ans{"int-" . $theint . "-rxerrs"} = $values[3];
+        $ans{"int-" . $theint . "-txbytes"} = $values[9];
+        $ans{"int-" . $theint . "-txpkts"} = $values[10];
+        $ans{"int-" . $theint . "-txerrs"} = $values[11];
+
+        &debug("ParseInterface: found tx/rx bytes (" . $ans{"int-" . $theint . "-txbytes"} . "/" . $ans{"int-" . $theint . "-rxbytes"} . "), pkts (" . $ans{"int-" . $theint . "-txpkts"} . "/" . $ans{"int-" . $theint . "-rxpkts"} . "), errs (" . $ans{"int-" . $theint . "-txerrs"} . "/" . $ans{"int-" . $theint . "-rxerrs"} . ")");
+
+}
+
+sub ParseMysqlStatus() {
+        my ($line) = @_;
+
+        &debug("ParseMysqlStat: parsing: $line");
+
+# Uptime: 247894  Threads: 29  Questions: 1238341  Slow queries: 3  Opens: 46  Flush tables: 1  Open tables: 39  Queries per second avg: 4.995
+        if ($line =~ /Uptime: (\d+)\s+Threads: (\d+)\s+Questions: (\d+)\s+Slow queries: (\d+)\s+Opens: (\d+)\s+Flush tables: (\d+)\s+Open tables: (\d+)\s+Queries per second avg: (\S+)/) {
+                $ans{"mysql-uptime"} = $1;
+                $ans{"mysql-threads"} = $2;
+                $ans{"mysql-questions"} = $3;
+                $ans{"mysql-slowqueries"} = $4;
+                $ans{"mysql-opens"} = $5;
+                $ans{"mysql-flushtables"} = $6;
+                $ans{"mysql-opentables"} = $7;
+                $ans{"mysql-queries"} = $8;
+                &debug("ParseMysqlStat: found threads, opentables, questions: $2, $7, $3");
+        } else { 
+                if ($SSHPERFstatus < 1) { $SSHPERFstatus = 1; $SSHPERFmessage = "Couldn't parse mysql status."; &Log($SSHPERFmessage);}
+                &debug("ParseMysqlStat: unable to parse mysql status");
+                $ans{"mysql-uptime"} = -1;
+        }
+}
+
+sub ParseUptime() {
+        my ($line) = @_;
+        # &debug("ParseUptime: parsing: $line");
+
+        if ($line =~ /load average: \d+\.\d+, (\d+\.\d+), (\d+\.\d+)/) {
+                $ans{"load-5minave"} = $1;
+                $ans{"load-15minave"} = $2;
+                debug("ParseUptime: found 5min load: $1");
+        } else { 
+                if ($SSHPERFstatus < 1) { $SSHPERFstatus = 1; $SSHPERFmessage = "Couldn't parse uptime output."; &Log($SSHPERFmessage);}
+        }
+}
+
+sub ParseFree() {
+        my ($line) = @_;
+        @lines = split(/\n/, $line);
+
+        # &debug("ParseFree: parsing");
+
+        if ($lines[2] =~ /^Mem:\s+(\d+)\s+\d+\s+(\d+)\s+\d+\s+\d+\s+\d+/) {
+                $ans{"mem-total"} = $1;
+                $ans{"mem-free"} = $2;
+                if ($lines[4] =~ /^Swap:\s+(\d+)\s+\d+\s+(\d+)/) {
+                        $ans{"swap-total"} = $1;
+                        $ans{"swap-free"} = $2;
+                        &debug("ParseFree: found swap: (" . $ans{"swap-free"} . " / " . $ans{"swap-total"} . ")");
+                        &debug("ParseFree: found free mem: (" . $ans{"mem-free"} . " / " . $ans{"mem-total"} . ")");
+                } else { die("ParseFree: parse swap error\n"); }
+
+                ######################################
+                #Catch block to detect for no swap
+                #Added 20060920 Collin
+                ######################################
+                if ($ans{"swap-total"} == 0) {
+                    $ans{"swap-freepct"} = 0;
+                }else{
+                    $ans{"swap-freepct"} = 100 * ($ans{"swap-free"} / $ans{"swap-total"});
+                }
+
+                $ans{"mem-freepct"} = 100 * ($ans{"mem-free"} / $ans{"mem-total"});
+        } else { 
+                if ($SSHPERFstatus < 1) { $SSHPERFstatus = 1; $SSHPERFmessage = "Couldn't parse free output."; &Log($SSHPERFmessage);}
+        }
+}
+
+sub ParseSwapinfo() {
+	my ($line) = @_;
+	@lines = split(/\n/, $line);
+
+	foreach (@lines) {
+		if (/dev/) {
+			if (/^dev\s+(\d+)\s+\d+\s+(\d+)/) {
+				$ans{"swap-total"} = $1;
+				$ans{"swap-free"} = $2;
+				&debug("ParseSwapinfo: found swap: (" . $ans{"swap-free"} . " / " . $ans{"swap-total"} . ")");
+			}
+			else {
+				&debug("ParseSwapinfo: error parsing swap info from $_");
+			}
+		} elsif (/memory/) {
+			if (/^memory\s+(\d+)\s+\d+\s+(\d+)/) {
+				$ans{"mem-total"} = $1;
+                                $ans{"mem-free"} = $2;
+                                &debug("ParseSwapinfo: found free mem: (" . $ans{"mem-free"} . " / " . $ans{"mem-total"} . ")");
+			}		
+		}
+	}
+
+	if ($ans{"swap-total"} == 0) {
+		$ans{"swap-freepct"} = 0;
+	} else {
+		$ans{"swap-freepct"} = 100 * ($ans{"swap-free"} / $ans{"swap-total"});
+	}
+
+        $ans{"mem-freepct"} = 100 * ($ans{"mem-free"} / $ans{"mem-total"});
+
+}
+
+sub ParseTop() {
+        my ($line) = @_;
+        @lines = split(/\n/, $line);
+
+        &debug("ParseTop: parsing: $lines[4]");
+        #       Memory: 1024M real, 635M free, 230M swap in use, 922M swap free
+
+        if ($lines[4] =~ /^Memory:\s+(\S+)\s+real,\s+(\S+)\s+free,\s+(\S+)\s+swap in use,\s+(\S+)\s+swap free/) {
+
+                $ans{"mem-total"} = $1;
+                $ans{"mem-free"} = $2;
+                my $swapused = $3;
+
+                # Fix 6/17/04 BAW
+                # Need to match GB also
+                $ans{"swap-free"} = $4;
+
+        # This is for 100% free swap (diff string)
+        #       Memory: 1024M real, 635M free, 922M swap free
+        } elsif ($lines[4] =~ /^Memory:\s+(\S+)\s+real,\s+(\S+)\s+free,\s+(\S+)\s+swap free/) {
+                $ans{"mem-total"} = $1;
+                $ans{"mem-free"} = $2;
+                my $swapused = 0;
+                $ans{"swap-free"} = $3;
+
+        } else { 
+                if ($SSHPERFstatus < 1) { $SSHPERFstatus = 1; $SSHPERFmessage = "Couldn't parse top output."; &Log($SSHPERFmessage);}
+                return;
+        }
+
+        if ( $ans{"mem-total"} =~ m/G$/ ) {
+                $ans{"mem-total"} =~ s/G$//;
+                $ans{"mem-total"} *= 1024;
+        } else {
+                $ans{"mem-total"} =~ s/M$//;
+        }
+
+        if ( $ans{"mem-free"} =~ m/G$/ ) {
+                $ans{"mem-free"} =~ s/G$//;
+                $ans{"mem-free"} *= 1024;
+        } else {
+                $ans{"mem-free"} =~ s/M$//;
+        }
+
+        if ( $swapused =~ m/G$/ ) {
+                $swapused =~ s/G$//;
+                $swapused *= 1024;
+        } else {
+                $swapused =~ s/M$//;
+        }
+
+
+        if ( $ans{"swap-free"} =~ m/G$/ ) {
+                $ans{"swap-free"} =~ s/G$//;
+                $ans{"swap-free"} *= 1024;
+        } else {
+                $ans{"swap-free"} =~ s/M$//;
+        }
+
+        $ans{"swap-total"} = $swapused + $ans{"swap-free"};
+
+        $ans{"swap-total"} = $ans{"swap-total"} * 1024; 
+        $ans{"mem-total"} = $ans{"mem-total"} * 1024; 
+        $ans{"mem-free"} = $ans{"mem-free"} * 1024; 
+        $ans{"swap-free"} = $ans{"swap-free"} * 1024; 
+
+        $ans{"swap-freepct"} = 100 * ($ans{"swap-free"} / $ans{"swap-total"});
+        $ans{"mem-freepct"} = 100 * ($ans{"mem-free"} / $ans{"mem-total"});
+
+        &debug("ParseFree: found swap: (" . $ans{"swap-free"} . " / " . $ans{"swap-total"} . ")");
+        &debug("ParseFree: found free mem: (" . $ans{"mem-free"} . " / " . $ans{"mem-total"} . ")");
+}
+sub ParseMailQ() {
+        my ($line) = @_;
+        if ($line =~ /(\S+)/) {
+                &debug("ParseMailQ: found Q size: ".$1);
+                $ans{"mailq"} = $1;
+        } else {
+                &debug("ParseMailQ: parse error: ".$line);
+                $ans{"mailq"} = -1;
+        }
+}
+
+sub ParseDf() {
+        my ($line) = @_;
+        @lines = split(/\n/, $line);
+
+        &debug("ParseDf: parsing");
+
+        foreach $l (@lines) {
+                next if ($l =~ /^Filesystem/); 
+                next if ($l eq ""); 
+                if ($l =~ /^(\S+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(\S+)$/) {
+                        $ans{"disk-total-" . $6} = $2;
+                        $ans{"disk-used-" . $6} = $3;
+                        $ans{"disk-free-" . $6} = $4;
+                        $ans{"disk-usedpct-" . $6} = $5;
+                        &debug("ParseDf: found fs: $6 ($5)"); 
+                } else { 
+                        #if ($SSHPERFstatus < 1) { $SSHPERFstatus = 1; $SSHPERFmessage = "Couldn't parse df output."; &Log($SSHPERFmessage);}
+                        next;
+                }
+        }
+}
+
+
+sub ParseLocalSmtp() {
+        my ($line, $host) = @_;
+
+        &debug("ParseLocalSmtp: parsing: " . $line);
+
+        if ($line =~ /SMTP OK - (\d+) second response time/) {
+                $ans{"local-check_smtp-" . $host} = $1;
+                &debug("ParseLocalSmtp: OK: " . $1 . " second response time");
+        } elsif ($line =~ /Invalid SMTP response received from host/) {
+                $ans{"local-check_smtp-" . $host} = -1;
+                &debug("ParseLocalSmtp: CRITICAL: invalid SMTP response");
+                if ($SSHPERFstatus < 1) { $SSHPERFstatus = 1; $SSHPERFmessage = "Invalid SMTP response"; &Log($SSHPERFmessage);}
+        } elsif ($line =~ /Connection refused by host/) {
+                $ans{"local-check_smtp-" . $host} = -2;
+                &debug("ParseLocalSmtp: CRITICAL: connection refused by host");
+                if ($SSHPERFstatus < 2) { $SSHPERFstatus = 2; $SSHPERFmessage = "Connection refused by host"; &Log($SSHPERFmessage);}
+        } else {
+                $ans{"local-check_smtp-" . $host} = -3;
+                &debug("ParseLocalSmtp: CRITICAL: unknown error");
+                if ($SSHPERFstatus < 2) { $SSHPERFstatus = 2; $SSHPERFmessage = "Unknown error"; &Log($SSHPERFmessage);}
+        }
+}
+
+
+sub ReadConfig {
+        &debug("ReadConfig: Reading config from file: $CFGFILE");
+        if (!open(CFILE, $CFGFILE)) { &debug("Fatal: Couldn't open config file: $CFGFILE"); exit(1); }
+        my $l=0;
+        while (<CFILE>) {
+                $l++;
+                next if (/^#/);
+                next if (/^$/);
+                my ($val, @args) = split;
+                if (0) {
+                } elsif ($val eq "proc-exists") {
+                        $tests{$val . "-" . $args[1]} = $args[0] . "~" . $args[1];
+                } elsif ($val eq "load-5minave") {
+                        $tests{$val} = $args[0] . "~" . $args[1];
+                } elsif ($val eq "cpu-idlepct") {
+                        $tests{$val} = $args[0] . "~" . $args[1];
+                } elsif ($val eq "mem-free") {
+                        $tests{$val} = $args[0] . "~" . $args[1];
+                } elsif ($val eq "swap-free") {
+                        $tests{$val} = $args[0] . "~" . $args[1];
+                } elsif ($val eq "mem-freepct") {
+                        $tests{$val} = $args[0] . "~" . $args[1];
+                } elsif ($val eq "swap-freepct") {
+                        $tests{$val} = $args[0] . "~" . $args[1];
+                } elsif ($val eq "disk-usedpct") {
+                        $tests{$val . "-" . $args[2]} = $args[0] . "~" . $args[1];
+                } elsif ($val =~ /^sar-/) {
+                        $tests{$val} = $args[0] . "~" . $args[1];
+                } elsif ($val eq "snmp-oid") {
+                        $tests{$val . "-" . $args[5]} = $args[0] . "~" . $args[1] . "~" . $args[2] . "~" . $args[3] . "~" . $args[4];
+                } elsif ($val =~ /^snmp-/) {
+                        $tests{$val} = $args[0] . "~" . $args[1] . "~" . $args[2] . "~" . $args[3];
+                } elsif ($val =~ /^int-/) {
+                        $tests{$val} = 1;
+                } elsif ($val eq "zimbra-services") {
+                        $tests{$val} = 1;
+                } elsif ($val eq "zimbra-queues") {
+                        $tests{$val} = $args[0] . "~" . $args[1];
+                } elsif ($val eq "mailq") {
+                        $tests{$val} = $args[0] . "~" . $args[1];
+                } elsif ($val eq "ping") {
+                        $a = shift(@args);
+                        $tests{$val . "-" . $a} = 1;
+                } elsif ($val eq "fileage") {
+                        $tests{$val."-".$args[2]} = $args[0]."~".$args[1];
+                } elsif ($val eq "local-check_smtp") {
+                        $a = shift(@args);
+                        $b = shift(@args);
+                        $tests{$val . "-" . $a} = $b;
+                } elsif ($val eq "hostname" ) {
+                        if (!$SNMPHOST ) { $connection{"hostname"} = $args[0]; }
+                        else { $connection{"hostname"} = $SNMPHOST; }
+                } elsif ($val eq "connect") {
+                        $connection{"host"} = $args[0];
+                        $connection{"user"} = $args[1];
+                        $connection{"key"} = $args[2];
+                } elsif ($val eq "connectextra") {
+                        $connection{"extra"} = join(" ", @args);
+                } elsif ($val eq "osversion") {
+                        $connection{"osversion"} = $args[0];
+                } elsif ($val eq "mysql") {
+                        $tests{$val} = join("~", @args);
+                } elsif ($val eq "debug") {
+                        $DEBUG=1;
+                } else { die("config file error on line $l: unknown statement: $_\n");
+                }
+# XXX NEW
+        }
+
+        close(CFILE);
+        &debug("ReadConfig: Done reading config from file: $CFGFILE");
+}
+
+sub debug {
+        my ($message) = @_;
+        print stderr "debug: " . $message . "\n" if $DEBUG;
+}
+
+
+sub Log {
+  my($entry) = @_;
+
+  # if (open(LOGFILE, ">>$LOGFILE")) {
+
+#         (@ctime) = localtime(time);
+#         printf LOGFILE ("%02d/%02d/%02d %02d:%02d\t$entry\n", $ctime[4]+1, $ctime[3], $ctime[5]+1900, $ctime[2], $ctime[1]);
+#         close LOGFILE;
+ #  }
+  &debug("Log: $entry\n");
+
+}
+
+sub SubmitPassive {
+  my($description, $returncode, $text) = @_;
+  my $h;
+
+  open(ECF, ">>$ECFFILE") || die("Couldn't open $ECFFILE: $!\n");
+
+  # $returncode = $SSHPERFstatus;
+
+  if ($returncode == 0) { $ret = "OK"; 
+  } elsif ($returncode == 1) { $ret = "WARNING"; 
+  } elsif ($returncode == 2) { $ret = "CRITICAL"; 
+  } elsif ($returncode == 3) { $ret = "UNKNOWN"; 
+  } else { $ret = "UNKNOWN"; } 
+
+ if ($connection{"hostname"}) {
+        $h = $connection{"hostname"};
+ } else {
+        $h = $connection{"host"};
+ }
+
+  print ECF ("[" . time . "] PROCESS_SERVICE_CHECK_RESULT;" . $h . ";" . $description . ";$returncode;$description $ret - " . $text . "\n");
+  &Log("[" . time . "] PROCESS_SERVICE_CHECK_RESULT;" . $h . ";" . $description . ";$returncode;$description $ret - " . $text );
+  close ECF;
+}
+
+
