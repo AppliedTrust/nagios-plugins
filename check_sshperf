@@ -254,21 +254,21 @@ foreach (keys(%commands)) {
                 my ($h, $comm, $warn, $crit, $misc) = split("~", $tests{$_});
                 if ($SNMPHOST) { $h = $SNMPHOST; }
                 if ($_ eq "snmp-winprocessorload") {
-                        $sshcmd = $sshcmd . "echo \@\@\@\@;snmpget -v1 -c $comm -Oq $h .1.3.6.1.2.1.25.3.3.1.2.1;"; 
+                        $sshcmd = $sshcmd . "echo \@\@\@\@;snmpget -v1 -c $comm -Oq $h .1.3.6.1.2.1.25.3.3.1.2.1 2>&1;"; 
                 } elsif ($_ eq "snmp-winsystemnumusers") {
-                        $sshcmd = $sshcmd . "echo \@\@\@\@;snmpget -v1 -c $comm -Oq $h .1.3.6.1.2.1.25.1.5.0;"; 
+                        $sshcmd = $sshcmd . "echo \@\@\@\@;snmpget -v1 -c $comm -Oq $h .1.3.6.1.2.1.25.1.5.0 2>&1;"; 
                 } elsif ($_ eq "snmp-winsystemprocesses") {
-                        $sshcmd = $sshcmd . "echo \@\@\@\@;snmpget -v1 -c $comm -Oq $h .1.3.6.1.2.1.25.1.6.0;"; 
+                        $sshcmd = $sshcmd . "echo \@\@\@\@;snmpget -v1 -c $comm -Oq $h .1.3.6.1.2.1.25.1.6.0 2>&1;"; 
                 } elsif ($_ eq "snmp-wintcpcurrestab") {
-                        $sshcmd = $sshcmd . "echo \@\@\@\@;snmpget -v1 -c $comm -Oq $h .1.3.6.1.2.1.6.9.0;"; 
+                        $sshcmd = $sshcmd . "echo \@\@\@\@;snmpget -v1 -c $comm -Oq $h .1.3.6.1.2.1.6.9.0 2>&1;"; 
                 } elsif ($_ eq "snmp-ioscpu5min") {
-                        $sshcmd = $sshcmd . "echo \@\@\@\@;snmpget -v1 -c $comm -Oq $h .1.3.6.1.4.1.9.2.1.57.0;"; 
+                        $sshcmd = $sshcmd . "echo \@\@\@\@;snmpget -v1 -c $comm -Oq $h .1.3.6.1.4.1.9.2.1.57.0 2>&1;"; 
                 } elsif ($_ eq "snmp-iosmem5minused") {
-                        $sshcmd = $sshcmd . "echo \@\@\@\@;snmpget -v1 -c $comm -Oq $h .1.3.6.1.4.1.9.9.48.1.1.1.5.1;";
+                        $sshcmd = $sshcmd . "echo \@\@\@\@;snmpget -v1 -c $comm -Oq $h .1.3.6.1.4.1.9.9.48.1.1.1.5.1 2>&1;";
                 } elsif ($_ eq "snmp-iosmem5minfree") {
-                        $sshcmd = $sshcmd . "echo \@\@\@\@;snmpget -v1 -c $comm -Oq $h .1.3.6.1.4.1.9.9.48.1.1.1.6.1;";
+                        $sshcmd = $sshcmd . "echo \@\@\@\@;snmpget -v1 -c $comm -Oq $h .1.3.6.1.4.1.9.9.48.1.1.1.6.1 2>&1;";
                 } elsif ($_ =~ /snmp-oid-/) {
-                        $sshcmd = $sshcmd . "echo \@\@\@\@;snmpget -v1 -c $comm -Oq $h $misc;";
+                        $sshcmd = $sshcmd . "echo \@\@\@\@;snmpget -v1 -c $comm -Oq $h $misc 2>&1;";
                 } else {
                         die("error: unknown snmp command: $_\n");
                 }
@@ -624,7 +624,10 @@ foreach $test (keys(%tests)) {
                         } else {
                                 $ret = 0;
                         }
-                        if ($oidname =~ /\S+-outoctects/) {
+                        if ($ans{$test} eq "") {
+                                $ans_readable = "No Snmp response!"; 
+                                $ret = 2;
+                        } elsif ($oidname =~ /\S+-outoctects/) {
                                 $ans_tmp = $ans{$test};
                                 $ans_readable = ($ans_tmp/1000) . " k";
                         } else {
@@ -1106,12 +1109,17 @@ sub ParseSnmp() {
 
 sub ParseSnmpOid() {
         my ($test, $res, $name) = @_;
-
+        $res =~ s/^\n(.*)/$1/;
         &debug("ParseSnmp: parsing: $res");
 
         if ($test =~ /snmp-oid-(\S+)/) {
                 my $testname = $1;
-                if ($res =~ /(.*)\s+(\d+)/) {
+                if ($res =~ /(Timeout:.*)/) {
+                  &debug("ParseSnmp: $res");
+                  $ans{$test} = "";
+                  if ($SSHPERFstatus < 1) { $SSHPERFstatus = 1; $SSHPERFmessage = "Snmp test timed out."; &Log($SSHPERFmessage);}
+                }
+                elsif ($res =~ /(.*)\s+(\d+)/) {
                         &debug("ParseSnmp: found $testname: $2");
                         $ans{$test} = $2;
                 }
@@ -1464,6 +1472,7 @@ sub Log {
 }
 
 sub SubmitPassive {
+
   my($description, $returncode, $text) = @_;
   my $h;
 
@@ -1482,6 +1491,14 @@ sub SubmitPassive {
  } else {
         $h = $connection{"host"};
  }
+
+  # If we're in debug mode, don't actually submit the results, just print out
+  # what would be submitted
+  if ($DEBUG) {
+    &debug("Passive service submission: [" . time . "] PROCESS_SERVICE_CHECK_RESULT;" . $h . ";" . $description . ";$returncode;$description $ret - " . $text );
+    close ECF;
+    return;
+  }
 
   print ECF ("[" . time . "] PROCESS_SERVICE_CHECK_RESULT;" . $h . ";" . $description . ";$returncode;$description $ret - " . $text . "\n");
   &Log("[" . time . "] PROCESS_SERVICE_CHECK_RESULT;" . $h . ";" . $description . ";$returncode;$description $ret - " . $text );
