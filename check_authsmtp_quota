@@ -1,0 +1,129 @@
+#!/usr/bin/perl
+# Written by Chris McDermott 
+# Copyright Applied Trust 2010
+# Last Edited 03/10/2010
+
+use strict;
+use Getopt::Long;
+
+############## BEGIN GLOBAL VARIABLES ##############
+
+my $DEBUG = 0;
+my $CURL = "/usr/bin/curl -b /tmp/cookies.txt -c /tmp/cookies.txt -s";
+
+############### END GLOBAL VARIABLES ###############
+
+################## BEGIN FUNCTIONS #################
+
+sub print_usage() 
+{
+	print "check_authsmpt_limit: Could not parse arguments\n";
+	print "Usage: check_authsmtp_limit -u <username> -p <password> -w <warn threshold> -c <crit threshold>\n";
+	exit 3;
+}
+
+################### END FUNCTIONS ##################
+
+
+################ BEGIN MAIN ROUTINE ################
+
+if (scalar @ARGV != 8)
+{
+	&print_usage();
+}
+
+my ($warn,$crit,$user,$pass,$messagecount,$quota,$messagepct);
+my $result = GetOptions ("user=s" => \$user,
+			"password=s" => \$pass,
+			"warn=s" => \$warn,              # this option can be specified with either -w or --warn
+      "crit=s"   => \$crit);           # this option can be specified with either -c or --crit
+
+if ($DEBUG)
+{
+	print "DEBUG: warn threshold set to $warn\n";
+	print "DEBUG: crit threshold set to $crit\n";
+	print "DEBUG: user - $user\n";
+	print "DEBUG: pass - $pass\n";
+}
+
+if ($warn > $crit)
+{
+	print "ERROR: warn threshold must be lower than crit threshold\n";
+	&print_usage();
+}
+
+my @html_signin = `$CURL -d "user_id=$user&password=$pass&Submit=Login" http://control.authsmtp.com/signin.php`;
+my @html_quota = `$CURL http://control.authsmtp.com/index.php#tabs-2`;
+
+`rm -rf /tmp/cookies.txt`;
+
+#my $c = 0;
+#foreach (@html_quota)
+#{
+#	print "$c: $_";
+#  $c++;
+#}
+
+foreach my $line (@html_quota) {
+  if ($line =~ /([0-9,]+)\s+messages sent.*\d+\.?\d*%/m)
+  {
+  	if ($1 =~ /(\d+),(\d+)/)
+  	{
+  		$messagecount = "$1$2";
+  	} 
+  	else
+  	{
+  		$messagecount = $1;
+  	}
+  }
+
+  if ($line =~ /\s*up to (\d+),(\d+)\s+messages/)
+  {
+  	$quota = $1 . $2;
+  }
+}
+
+if (!$messagecount) {
+  print "ERROR: Could not parse message count from website\n";
+  exit 3;
+}
+
+if (!$quota) {
+  print "ERROR: Could not parse message quota from website\n";
+  exit 3;
+}
+
+$messagepct = $messagecount / $quota * 100;
+
+if ($DEBUG)
+{
+	print "DEBUG: message count is $messagecount\n";
+	print "DEBUG: quota is $quota\n";
+	print "DEBUG: message pct is $messagepct\n";
+}
+
+my $remaining = $quota - $messagecount;
+
+if ($messagepct < $warn)
+{
+	print "Quota OK - $messagepct% of quota used, $remaining messages remaining. | authsmtp-quota-pct=$messagepct\n";
+	exit 0;
+}
+elsif ($messagepct < $crit)
+{
+	print  "Quota WARNING - $messagepct% of quota used, $remaining messages remaining. | authsmtp-quota-pct=$messagepct\n";
+	exit 1;
+}
+elsif ($messagepct >= $crit)
+{
+	print "Quota CRITICAL - $messagepct% of quota used, $remaining messages remaining. | authsmtp-quota-pct=$messagepct\n";
+	exit 2;
+}
+else
+{
+	print "ERROR: Could not determine quota status\n";
+	exit 3;
+}
+
+################# END MAIN ROUTINE ################
+

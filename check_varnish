@@ -1,0 +1,97 @@
+#!/usr/bin/php -q
+<?php
+
+putenv('TZ=America/Denver');
+
+$options = getopt('h:p:s:v:d');
+if (!isset($options['h'])) { usage(); }
+if (!isset($options['p'])) { usage(); }
+
+$host = $options['h'];
+$port = $options['p'];
+
+if (isset($options['s'])) { $secretfile = $options['s']; }
+if (isset($options['d'])) { $debug = 1; }
+if (isset($options['v'])) { 
+  $varnishadm = $options['v'];
+} 
+else {
+  $varnishadm = '/usr/local/bin/varnishadm';
+}
+
+if ($debug) {
+  print "Command line arguments:\n";
+  foreach($options as $key=>$value) {
+    print "  $key -> $value\n";
+  }
+  print "\n";
+}
+
+exec("$varnishadm -T $host:$port stats 2>&1", $output);
+if (preg_match("/No such file or directory/", join($output), $matches)) {
+  print "Sorry, but $varnishadm does not exist, are you sure that varnish is installed and that's the right path?\n";
+  exit(2);
+}
+
+foreach($output as $line) {
+  if (preg_match("/(\d+)  (.*)$/", $line, $matches)) {
+    $value = $matches[1];
+    $key = $matches[2];
+    switch ($key) {
+      case 'Client connections accepted':
+        $metrics['client_connections'] = $value;
+      case 'Client requests received':
+        $metrics['client_requests'] = $value;
+      case 'Cache hits':
+        $metrics['cache_hits'] = $value;
+      case 'Cache misses':
+        $metrics['cache_misses'] = $value;
+      case 'N backends':
+        $metrics['backends'] = $value;
+      case 'Total Sessions':
+        $metrics['total_sessions'] = $value;
+      case 'Total Requests':
+        $metrics['total_requests'] = $value;
+      case 'N worker threads':
+        $metrics['worker_threads'] = $value;
+    }
+  }
+}
+
+if ($debug) {
+  print "Parsed varnishd stats results:\n";
+  foreach($metrics as $var=>$val) {
+   print "  $var -> $val\n";
+  }
+  print "\n";
+}
+
+$metrics['total_caches'] = $metrics['cache_hits'] + $metrics['cache_misses'];
+$metrics['cache_hit_rate'] = round($metrics['cache_hits']/$metrics['total_caches']*100, 2);
+$metrics['cache_miss_rate'] = round($metrics['cache_misses']/$metrics['total_caches']*100, 2);
+
+if ($metrics['backends'] < 1) {
+  $exitstring = "VARNISH CRITICAL! No backends running. | ";
+  $exitcode = 2;
+} elseif ($metrics['cache_miss_rate'] > $metrics['cache_hit_rate']) {
+  $exitstring = "VARNISH WARNING! Cache miss rate is " . $metrics['cache_miss_rate'] . "%. | ";
+  $exitcode = 1;
+} else {
+  $exitstring = "VARNISH OK. | ";
+  $exitcode = 0;
+}
+
+foreach ($metrics as $var => $val) {
+  $exitstring .= "$var=$val;";
+}
+
+print "$exitstring\n";
+exit($exitcode);
+
+function usage() {
+  print "usage: check_varnish -h <host> -p <port> [ -s <secretfile> ] [ -v </path/to/varnishadm> ] [-h]\n";
+  print "\n";
+  exit(2);
+}
+
+?>
