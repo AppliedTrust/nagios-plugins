@@ -8,7 +8,7 @@
 #############################
 # YOU MUST SET THESE VARIABLES:
 $EC2_HOME = '/usr/local/ec2-api-tools/';		# http://aws.amazon.com/developertools/351
-$AWS_PHP_SDK_PATH = 'awsphpsdk/';	# http://aws.amazon.com/sdkforphp/
+$AWS_PHP_SDK_PATH = '/usr/local/aws-php-sdk/';	# http://aws.amazon.com/sdkforphp/
 $JAVA_HOME = '/usr/java/latest';			# http://www.java.com/en/download/
 
 #############################
@@ -57,6 +57,7 @@ foreach ($response->body->ListMetricsResult->Metrics->member as $v ) {
 
 }
 
+
 $now=time();
 $perfdata=array();
 $result=0;
@@ -76,7 +77,8 @@ foreach ($metrics as $m) {
 		$unit = 'Bytes/Second';
 	} else { $unit = 'None'; }
 
-        $r = $cw->get_metric_statistics('AWS/RDS', $m, date( "r", $now- 300), date("r", $now), 300, 'Average', $unit, array("DBInstanceIdentifier" => $instance));
+  $r = $cw->get_metric_statistics('AWS/RDS', $m, date( "r", $now- 300), date("r", $now), 300, 'Average', $unit, array("DBInstanceIdentifier" => $instance));
+
 
 	if (isset( $r->body->GetMetricStatisticsResult->Datapoints->member[0]->Average)) {
 		$thedata = floatval((string) $r->body->GetMetricStatisticsResult->Datapoints->member[0]->Average);
@@ -96,7 +98,10 @@ foreach ($metrics as $m) {
 				$warningtext.=" Low storage: ".$thedata." Bytes";
 			}
 		}
-	} else { $result=3; }
+	} else { 
+    if ($m === "DiskQueueDepth") { continue; } 
+    $result=3;
+  }
 }
 if ($result==0 ){
 	print "RDS OK instance ".$instance." |".join(',', $perfdata)."\n";
