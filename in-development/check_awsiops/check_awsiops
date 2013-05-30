@@ -1,0 +1,47 @@
+#!/usr/bin/php -q
+<?php
+require 'vendor/autoload.php';
+
+use Aws\CloudWatch\CloudWatchClient;
+use Aws\Common\Enum\Region;
+
+$cw = CloudWatchClient::factory(array(
+    'region' => 'us-east-1',
+));
+
+/*
+$metrics = $cw->listMetrics(array(
+	'Namespace' => 'AWS/EC2',
+//	'MetricName' => 'DiskReadOps',
+//	'Dimensions' => array(array('Name' => 'InstanceId', 'Value' => 'i-f44f3e99')),
+));
+*/
+
+$instanceid = 'i-e4c7dc8f';
+
+$metrics = $cw->getMetricStatistics(array(
+	'Namespace' => 'AWS/EC2',
+	'MetricName' => 'DiskReadOps',
+	'Dimensions' => array(array(
+		'Name' => 'InstanceId', 'Value' => $instanceid
+		//'Name' => 'VolumeId', 'Value' => 'vol-116f9979'
+	)),
+	'StartTime' => '-1 hour',
+	'EndTime' => 'now',
+	'Period' => 300,
+	'Statistics' => array('Average', 'Sum'),
+));
+
+var_dump($metrics['Datapoints']);
+
+/*
+DiskReadBytes
+DiskWriteBytes
+DiskReadOps
+DiskWriteOps
+*/
+
+echo "Instantant monthly IOPS \n";
+
+exit(0);
+
