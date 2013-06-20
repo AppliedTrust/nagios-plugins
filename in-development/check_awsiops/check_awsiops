@@ -58,7 +58,12 @@ $data_responses = array();
 
 foreach ($metrics as $m ) {
   $metric_param['MetricName'] = $m;
-  $data_responses[$m] = $cw->getMetricStatistics($metric_param)->get("Datapoints");
+  try {
+    $data_responses[$m] = $cw->getMetricStatistics($metric_param)->get("Datapoints");
+  } catch (Exception $e) {
+    print "Something went wrong with your arguments:\n" . $e . "\n";
+    exit(1);
+  }
 }
 
 $output = "AWS IOPS OKAY; \n";
@@ -72,6 +77,6 @@ exit(0);
 
 function usage() {
   print "\nusage: check_awsiops -K <accesskey> -S <secretkey> -v <volume-id> -i <instance-id> -r <aws-region> (optional)\n\n" . 
-        "If given both a VolumeId and an InstanceId, this script get will metrics for the EBS volume (-v).";
+        "If given both a VolumeId and an InstanceId, this script will  get metrics for the EBS volume (-v).\n";
   exit(1);
 }
