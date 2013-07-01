@@ -20,7 +20,7 @@ $five_minutes_ago = date('o-m-d H:i:s', strtotime("5 minutes ago"));
 $now              = date('o-m-d H:i:s',time());
 
 
-require 'vendor/autoload.php';
+require 'aws.phar';
 use Aws\CloudWatch\CloudWatchClient;
 use Aws\Common\Enum\Region;
 
@@ -58,25 +58,26 @@ $data_responses = array();
 
 foreach ($metrics as $m ) {
   $metric_param['MetricName'] = $m;
-  try {
-    $data_responses[$m] = $cw->getMetricStatistics($metric_param)->get("Datapoints");
-  } catch (Exception $e) {
-    print "Something went wrong with your arguments:\n" . $e . "\n";
-    exit(1);
-  }
+  $data_responses[$m] = $cw->getMetricStatistics($metric_param)->get("Datapoints");
 }
 
 $output = "AWS IOPS OKAY; \n";
 foreach ($metrics as $m) {
-  $output .= $m . " : " . $data_responses[$m][0]["Sum"] . " " . $data_responses[$m][0]["Unit"] . ";\n";
+  if ( isset($data_responses[$m][0]) ) {
+    $output .= $m . " : " . $data_responses[$m][0]["Sum"] . " " . $data_responses[$m][0]["Unit"] . ";\n";
+  }
+  else{
+    print "Machine is down or inactive\n";
+    exit(1);
+  }
 }
 
-print($output);
+print_r($output);
 exit(0);
 
 
 function usage() {
   print "\nusage: check_awsiops -K <accesskey> -S <secretkey> -v <volume-id> -i <instance-id> -r <aws-region> (optional)\n\n" . 
-        "If given both a VolumeId and an InstanceId, this script will  get metrics for the EBS volume (-v).\n";
+        "If given both a VolumeId and an InstanceId, this script get will metrics for the EBS volume (-v).";
   exit(1);
 }
