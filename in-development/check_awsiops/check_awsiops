@@ -67,8 +67,7 @@ foreach ($metrics as $m) {
     $output .= $m . " : " . $data_responses[$m][0]["Sum"] . " " . $data_responses[$m][0]["Unit"] . ";\n";
   }
   else{
-    print "Machine is down or inactive\n";
-    exit(1);
+    $output .= $m . " : " . " 0 " . ";\n";
   }
 }
 
