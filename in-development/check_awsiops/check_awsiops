@@ -16,8 +16,8 @@ define('AWS_SECRET_KEY', $options["S"]);
 error_reporting(-1);
 
 date_default_timezone_set('America/Denver');
-$five_minutes_ago = date('o-m-d H:i:s', strtotime("10  minutes ago"));
-$now              = date('o-m-d H:i:s',time());
+$time_interval = date('o-m-d H:i:s', strtotime("10 minutes ago"));
+$now           = date('o-m-d H:i:s',time());
 
 
 require 'aws.phar';
@@ -48,7 +48,7 @@ $metric_param = array(
   'Namespace'  => $namespace,
   'MetricName' => 'CPUUtilization', //Dummy metric doesn't matter
   'Dimensions' => array($dimension),  
-  'StartTime'  => $five_minutes_ago,
+  'StartTime'  => $time_interval,
   'EndTime'    => $now,
   'Period'     => 60,
   'Statistics' => array('SampleCount', 'Minimum', 'Maximum', 'Average', 'Sum')
