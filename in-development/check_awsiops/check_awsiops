@@ -64,10 +64,10 @@ foreach ($metrics as $m ) {
 $output = "AWS IOPS OKAY; \n";
 foreach ($metrics as $m) {
   if ( isset($data_responses[$m][0]) ) {
-    $output .= $m . " : " . $data_responses[$m][0]["Sum"] . " " . $data_responses[$m][0]["Unit"] . ";\n";
+    $output .= $m . " = " . $data_responses[$m][0]["Sum"] . " " . $data_responses[$m][0]["Unit"] . "; ";
   }
   else{
-    $output .= $m . " : " . " 0 " . ";\n";
+    $output .= $m . " = " . "0 " . "; ";
   }
 }
 
