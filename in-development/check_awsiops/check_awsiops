@@ -61,13 +61,15 @@ foreach ($metrics as $m ) {
   $data_responses[$m] = $cw->getMetricStatistics($metric_param)->get("Datapoints");
 }
 
-$output = "AWS IOPS OKAY; \n";
+$output = "AWS IOPS OKAY; | ";
 foreach ($metrics as $m) {
   if ( isset($data_responses[$m][0]) ) {
-    $output .= $m . " = " . $data_responses[$m][0]["Sum"] . " " . $data_responses[$m][0]["Unit"] . "; ";
+    $output .= $m . "=" . $data_responses[$m][0]["Sum"];
+    $output .= ($m == end($metrics)) ? "" : ";;;";
   }
   else{
-    $output .= $m . " = " . "0 " . "; ";
+    $output .= $m . "=" . "0";
+    $output .= ($m == end($metrics)) ? "" : ";;;";
   }
 }
 
