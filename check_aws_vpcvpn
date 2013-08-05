@@ -1,0 +1,44 @@
+#!/usr/bin/php -q
+<?php
+
+$EC2_HOME = '/usr/local/ec2-api-tools/';
+putenv('EC2_HOME='.$EC2_HOME);
+putenv('JAVA_HOME=/usr/java/latest');
+putenv('TZ=America/Denver');
+
+$options = getopt("I:S:v:");
+if (!isset($options["I"])) { usage(); } 
+if (!isset($options["S"])) { usage(); }
+if (!isset($options["v"])) { usage(); }
+
+error_reporting(-1);
+
+$cmd = $EC2_HOME.'bin/ec2-describe-vpn-connections -O '.$options["I"].' -W '.$options["S"];
+$r = `$cmd`;
+
+$result = 2;
+$msg = array("Connection ".$options["v"]." not found");
+foreach (preg_split("/\n/",$r) as $line) {
+	if (!preg_match("/^VPNCONNECTION\s+(\S+)\s+(\S+)/",$line,$matches)) {
+		continue;
+	}
+	if ($matches[1] == $options["v"]) {
+		$msg = array();
+		if ($matches[2] == "available") {
+			$result = 0;
+		} else {
+			$msg[] = "VPN NOT available";
+		}
+
+	}
+}
+
+$svcname = "VPN";
+if ($result==0 ){	$status = "OK";
+} elseif ($result==1 ){	$status = "WARNING";
+} else {		$status = "CRITICAL";
+}
+
+print $svcname." ".$status." ".join(', ',$msg)." |\n";
+exit($result);
+
