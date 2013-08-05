@@ -1,5 +1,9 @@
 #!/usr/bin/php -q
 <?php
+# ------------------------------------------------------------------
+# We offer no warantee or guarantee - use this code at your own risk!
+# All code is Copyright (C) 2013, Applied Trust Engineering, Inc.
+# ------------------------------------------------------------------
 
 $EC2_HOME = '/usr/local/ec2-api-tools/';
 putenv('EC2_HOME='.$EC2_HOME);
