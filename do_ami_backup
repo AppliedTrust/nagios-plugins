@@ -1,0 +1,74 @@
+#!/usr/bin/php
+<?php
+# ------------------------------------------------------------------
+# We offer no warantee or guarantee - use this code at your own risk!
+# All code is Copyright (C) 2013, Applied Trust Engineering, Inc.
+# ------------------------------------------------------------------
+date_default_timezone_set('US/Mountain');
+
+$source_region = 'us-east-1';
+$dest_region = 'eu-west-1';
+$debug=0;
+
+putenv('EC2_HOME=/usr/local/ec2-api-tools');
+putenv('JAVA_HOME=/usr/java/latest');
+
+$options = getopt("K:S:i:");
+if (!isset($options["K"])) { usage(); } 
+if (!isset($options["S"])) { usage(); }
+if (!isset($options["i"])) { usage(); }
+
+$instancename = $options["i"];
+$key = $options["K"];
+$secret = $options["S"];
+
+$cmd = '/usr/local/ec2-api-tools/bin/ec2-describe-instances -O '.$key.' -W '.$secret.' --region '.$source_region.' --filter tag:Name='.$instancename;
+if ($debug) { echo $cmd."\n"; }
+$result = `$cmd`;
+if (preg_match('/^INSTANCE\s+(i-\S+)/m', $result, $m)) {
+  $current_instance = $m[1];
+} else {
+  echo "do_ami_backup CRITICAL Can't find instance ID for ".$instancename." [".$result."] ".$cmd."\n";
+  exit(2);
+}
+
+$name = substr('DR '.$current_instance .' '.date('Ymd His').' '.$instancename, 0, 128);
+$cmd = '/usr/local/ec2-api-tools/bin/ec2-create-image -O '.$key.' -W '.$secret.' '.$current_instance .' --region '.$source_region.' --name "'.$name.'" --description "test" --no-reboot';
+if ($debug) { echo $cmd."\n"; }
+$result = `$cmd`;
+if (preg_match('/^IMAGE\s+(ami-\S+)$/', $result, $m)) {
+  $newami = $m[1];
+} else {
+  echo "do_ami_backup CRITICAL Error creating AMI!";
+  exit(2);
+}
+
+$sleeptime=0;
+$status = "unknown";
+while ($status != "available") {
+	if ($sleeptime>600) {
+		echo "do_ami_backup CRITICAL Died waiting for pending AMI ".$newami." ***AMI WAS NOT COPIED TO DR REGION***!! You may want to run this by hand: ".$cmd;
+		exit(2);
+	}
+	if ($debug) { echo "status is ".$status."... sleeping\n"; }
+	sleep(20); $sleeptime +=20;
+
+	$cmd = '/usr/local/ec2-api-tools/bin/ec2-describe-images -O '.$key.' -W '.$secret.' --region '.$source_region.' --filter "image-id='.$newami.'"';
+	if ($debug) { echo $cmd."\n"; }
+	$result = preg_split("/\t/",`$cmd`);
+	$status = $result[4];
+}
+
+$cmd = '/usr/local/ec2-api-tools/bin/ec2-copy-image -O '.$key.' -W '.$secret.' -r '.$source_region.' --region '.$dest_region.' -s '.$newami.' -n "'.$name.'"';
+if ($debug) { echo $cmd."\n"; }
+$result = `$cmd`;
+if ($debug) { echo $result."\n"; }
+if (preg_match('/^IMAGE\s+(ami-\S+)$/', $result, $m)) {
+  $drami = $m[1];
+} else {
+  echo "do_ami_backup CRITIAL Error copying AMI to DR region!\n";
+  exit(2);
+}
+
+echo 'do_ami_backup OK ['.$source_region.': '.$newami.', '.$dest_region.': '.$drami."]\n";
+exit(0);
