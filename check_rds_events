@@ -5,6 +5,7 @@
 # All code is Copyright (C) 2013, Applied Trust Engineering, Inc.
 # ------------------------------------------------------------------
 putenv('AWS_RDS_HOME=/usr/local/RDSCli-1.14.001');
+putenv('JAVA_HOME=/usr');
 putenv('TZ=America/Denver');
 
 $options = getopt("I:S:d:");
@@ -14,49 +15,76 @@ if (!isset($options["d"])) { usage(); }
 
 error_reporting(-1);
 
-$cmd = '/usr/local/RDSCli-1.14.001/bin/rds-describe-events -I '.$options["I"].' -S '.$options["S"].' --source-type db-instance --source-identifier '.$options["d"];
+$starttime = date("Y-m-d", time()-60*60*12);
+$cmd = '/usr/local/RDSCli-1.14.001/bin/rds-describe-events -I '.$options["I"].' -S '.$options["S"].' --source-type db-instance --source-identifier '.$options["d"].' --start-time '.$starttime;
 $r = `$cmd`;
 
 $result = 0;
 $msg = array();
+$actual_event_count=0;
 foreach (preg_split("/\n/",$r) as $line) {
 	if (!preg_match("/^db-instance\s+(\S+)\s+(\S+)\s+(.*)$/",$line,$matches)) {
 		continue;
 	}
-	$event = $matches[3];
+	$actual_event_count++;
+	$event = trim($matches[3]);
 	if (preg_match("/Backing up DB instance/",$event)) {
-	} elseif (preg_match("/Finished DB Instance backup/",$event)) {
-		$msg[] = $matches[1];
+		$msg[] = $event;
 
-	} elseif (preg_match("/(DB instance created)/",$event,$matches)) {
-		$msg[] = $matches[1];
+	} elseif (preg_match("/Finished DB Instance backup/",$event)) {
+		$msg[] = $event;
+
+	} elseif (preg_match("/DB instance created/",$event,$matches)) {
+		$msg[] = $event;
 		$result = 1;
 
-	} elseif (preg_match("/(DB instance restarted)/",$event,$matches)) {
-		$msg[] = $matches[1];
+	} elseif (preg_match("/DB instance restarted/",$event,$matches)) {
+		$msg[] = $event;
 		$result = 2;
 
-	} elseif (preg_match("/(Multi-AZ instance failover started)/",$event,$matches)) { 
-		$msg[] = $matches[1];
+	} elseif (preg_match("/Multi-AZ instance failover started/",$event,$matches)) { 
+		$msg[] = $event;
 		$result = 2;
 
-	} elseif (preg_match("/(Multi-AZ instance failover completed)/",$event,$matches)) {
-		$msg[] = $matches[1];
+	} elseif (preg_match("/Multi-AZ instance failover completed/",$event,$matches)) {
+		$msg[] = $event;
 		$result = 2;
+
+	} elseif (preg_match("/Applying modification to allocated storage/",$event,$matches)) {
+		$msg[] = $event;
+		if ($result < 1) {
+			$result = 1;
+		}
+
+	} elseif (preg_match("/Finished applying modification to allocated storage/",$event,$matches)) {
+		$msg[] = $event;
+		if ($result < 1) {
+			$result = 1;
+		}
 
 	} else {
 		$msg[] = " Unknown event: ".$event." ";
-
 		$result = 2;
 	}
+}
+if ($actual_event_count<1) {
+	$msg[] = "No events for this database in the past 12 hours!";
+	$result = 2;
 }
 
 $svcname = "RDS";
 if ($result==0 ){	$status = "OK";
 } elseif ($result==1 ){	$status = "WARNING";
 } else {		$status = "CRITICAL";
+	$result=2;
 }
 
-print $svcname." ".$status." ".join(', ',$msg)." |\n";
+print $svcname." ".$status."; | \n";
+print join("\n",$msg)."\n";
 exit($result);
+
+function usage() {
+	print "usage: check_rds_events -d <rds_instance_name> -I <AWS_key_ID> -S <AWS_secret_key>\n";
+	exit(2);
+}
 
