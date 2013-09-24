@@ -116,6 +116,6 @@ exit($status);
 #########
 function usage() {
     echo "Usage: check_phpapc -U <full URL to apc.php> [-m <max_used_memory_pct_warn>[/<max_used_memory_pct_crit>]] [-f <max_fragmentation_warn>[/<max_fragmentation_crit>]] [-r <min_cache_hit_rate_pct_warn>[/<min_cache_hit_rate_pct_crit>]]\n";
-    echo "Usage example: check_phpapc -U http://admin.com/apc.php -m 90 -f 10 -r 90\n";
+    echo "Usage example: check_phpapc -U http://admin.com/apc.php -m 80/90 -f 10 -r 90/75\n";
     exit(1);
 }
