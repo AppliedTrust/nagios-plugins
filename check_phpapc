@@ -14,22 +14,36 @@ $service_name = "PHP-APC";
 $wget_or_curl_command = "wget -O - -q ";
 
 ## read arguments/set default thresholds
-$options = getopt("U:f:m:");
-if (isset($options["U"])) { 
+$options = getopt("U:f:m:r:");
+if (isset($options["U"])) {
         $url = $options["U"];
 } else {
         usage();
 }
-if (isset($options["m"])) { 
-        $used_pct_max = $options["m"];
-} else {
-        $used_pct_max = 90;
-}
-if (isset($options["f"])) { 
-        $frag_pct_max = $options["f"];
-} else {
-        $frag_pct_max = 5;
-}
+
+$checks = array(
+    'm' => array(
+        'name' => 'max_used_memory_pct',
+        'output' => '%d%% used mem',
+        'comp' => 'ge',
+        'warn' => 90,
+        'crit' => null
+    ),
+    'f' => array(
+        'name' => 'max_fragmentation_pct',
+        'output' => '%d%% fragmentation',
+        'comp' => 'ge',
+        'warn' => 5,
+        'crit' => null
+    ),
+    'r' => array(
+        'name' => 'min_hit_rate_pct',
+        'output' => '%d%% hit rate',
+        'comp' => 'le',
+        'warn' => 80,
+        'crit' => null
+    )
+);
 
 ## fetch APC stats from apc.php
 $cmd = $wget_or_curl_command.$url;
@@ -39,47 +53,69 @@ $status=0;
 
 ## parse APC stats from apc.php output
 if (preg_match_all('/Host Status Diagrams.*Free:\s+(\S+\s\S+)\s+\((\S+)%\).*Hits:\s+(\S+)\s+\((\S+)%\).*Used:\s+(\S+\s\S+)\s+\((\S+)%\).*Misses:\s+(\S+)\s+\((\S+)%\).*Fragmentation:\s+(\S+)%.*<\/body>/msU', $results, $matches)) {
-	$free = $matches[1][0];
-	$free_pct = $matches[2][0];
-	$hits = $matches[3][0];
-	$hits_pct = $matches[4][0];
-	$used = $matches[5][0];
-	$used_pct = $matches[6][0];
-	$miss = $matches[7][0];
-	$miss_pct = $matches[8][0];
-	$frag_pct = $matches[9][0];
+    $free = $matches[1][0];
+    $free_pct = $matches[2][0];
+    $hits = $matches[3][0];
+    $hits_pct = $matches[4][0];
+    $used = $matches[5][0];
+    $used_pct = $matches[6][0];
+    $miss = $matches[7][0];
+    $miss_pct = $matches[8][0];
+    $frag_pct = $matches[9][0];
 
-	## check APC stats against thresholds
-	$output[] = $used_pct."% used mem";
-	if ($used_pct >= $used_pct_max) {
-		if ($status < 2) { $status=1; }
-	} 
-	$output[] = $frag_pct."% fragmentation";
-	if ($frag_pct >= $frag_pct_max) {
-		if ($status < 2) { $status=1; }
-	} 
-	$perf = " | free_pct=".$free_pct."; hits_pct=".$hits_pct."; miss_pct=".$miss_pct."; frag_pct=".$frag_pct;
+    $checks['m']['value'] = $used_pct;
+    $checks['f']['value'] = $frag_pct;
+    $checks['r']['value'] = $hits_pct;
+
+    foreach ($checks as $opt => $check) {
+        if (isset($options[$opt])) {
+            $values = split('/', $options[$opt]);
+            $warn = array_shift($values);
+            $crit = array_shift($values);
+        } else {
+            $warn = $check['warn'];
+            $crit = $check['crit'];
+        }
+
+        if ($check['comp'] === 'ge') {
+            if ($crit !== null && $check['value'] >= $crit) {
+                $status = 2;
+            } elseif ($check['value'] >= $warn) {
+                $status = 1;
+            }
+        } elseif ($check['comp'] === 'le') {
+            if ($crit !== null && $check['value'] <= $crit) {
+                $status = 2;
+            } elseif ($check['value'] <= $warn) {
+                $status = 1;
+            }
+        }
+
+        array_push($output, sprintf($check['output'], $check['value']));
+    }
+
+    $perf = " | free_pct=".$free_pct."; hits_pct=".$hits_pct."; miss_pct=".$miss_pct."; frag_pct=".$frag_pct;
 } else {
-	$output[] = "Could not parse apc.php output";
-	$status=2;
+    $output[] = "Could not parse apc.php output";
+    $status=2;
 }
 
 ## output results
 echo $service_name;
 if ($status == 0) {
-	echo " OK: ";
+    echo " OK: ";
 } else if ($status == 1) {
-	echo " WARNING: ";
+    echo " WARNING: ";
 } else {
-	echo " CRITICAL: ";
-} 
+    echo " CRITICAL: ";
+}
 echo join(', ',$output ).$perf."\n";
 
 exit($status);
 
 #########
 function usage() {
-	echo "Usage: check_phpapc -U <full URL to apc.php> [-m <max_used_memory_pct>] [-f <max_fragmentation>]\n";
-	echo "Usage example: check_phpapc -U http://admin.com/apc.php -m 90 -f 10\n";
-	exit(1);
+    echo "Usage: check_phpapc -U <full URL to apc.php> [-m <max_used_memory_pct_warn>[/<max_used_memory_pct_crit>]] [-f <max_fragmentation_warn>[/<max_fragmentation_crit>]] [-r <min_cache_hit_rate_pct_warn>[/<min_cache_hit_rate_pct_crit>]]\n";
+    echo "Usage example: check_phpapc -U http://admin.com/apc.php -m 90 -f 10 -r 90\n";
+    exit(1);
 }
