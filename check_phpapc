@@ -69,7 +69,7 @@ if (preg_match_all('/Host Status Diagrams.*Free:\s+(\S+\s\S+)\s+\((\S+)%\).*Hits
 
     foreach ($checks as $opt => $check) {
         if (isset($options[$opt])) {
-            $values = split('/', $options[$opt]);
+            $values = explode('/', $options[$opt]);
             $warn = array_shift($values);
             $crit = array_shift($values);
         } else {
