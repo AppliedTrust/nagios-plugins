@@ -1,0 +1,87 @@
+#!/usr/bin/php -q
+<?php
+# ------------------------------------------------------------------
+# We offer no warantee or guarantee - use at your own risk!
+# All code is Copyright (C) 2013, AppliedTrust
+# ------------------------------------------------------------------
+
+$options = getopt("K:S:i:v:r:");
+if (!isset($options["K"])) { usage(); }
+if (!isset($options["S"])) { usage(); }
+if (!isset($options["v"]) && !isset($options["i"])) { usage(); }
+
+$ebs_mode = isset($options["v"]);
+$region   = isset($options["r"]) ? $options["r"] : 'us-east-1';
+
+define('AWS_KEY',        $options["K"]);
+define('AWS_SECRET_KEY', $options["S"]);
+
+error_reporting(-1);
+
+date_default_timezone_set('America/Denver');
+$time_interval = date('o-m-d H:i:s', strtotime("10 minutes ago"));
+$now           = date('o-m-d H:i:s',time());
+
+
+require 'aws.phar';
+use Aws\CloudWatch\CloudWatchClient;
+use Aws\Common\Enum\Region;
+
+
+
+$cw = CloudWatchClient::factory(array(
+    'key' => AWS_KEY,
+    'secret' => AWS_SECRET_KEY,
+    'region' => $region
+));
+
+
+if($ebs_mode){
+  $dimension = array('Name' => 'VolumeId', 'Value' => $options["v"]);
+  $metrics   = array('VolumeReadBytes', 'VolumeWriteBytes','VolumeReadOps', 'VolumeWriteOps');
+  $namespace = 'AWS/EBS';
+}
+else{
+  $dimension = array('Name' => 'InstanceId', 'Value' => $options["i"]);
+  $metrics   = array('DiskReadBytes', 'DiskWriteBytes','DiskReadOps', 'DiskWriteOps');
+  $namespace = 'AWS/EC2';
+} 
+
+$metric_param = array(
+  'Namespace'  => $namespace,
+  'MetricName' => 'CPUUtilization', //Dummy metric doesn't matter
+  'Dimensions' => array($dimension),  
+  'StartTime'  => $time_interval,
+  'EndTime'    => $now,
+  'Period'     => 60,
+  'Statistics' => array('SampleCount', 'Minimum', 'Maximum', 'Average', 'Sum')
+);
+
+$data_responses = array();
+
+foreach ($metrics as $m ) {
+  $metric_param['MetricName'] = $m;
+  $data_responses[$m] = $cw->getMetricStatistics($metric_param)->get("Datapoints");
+}
+
+$output = "AWS IOPS OKAY; | ";
+foreach ($metrics as $m) {
+  if ( isset($data_responses[$m][0]) ) {
+    $output .= $m . "=" . $data_responses[$m][0]["Sum"];
+    $output .= ($m == end($metrics)) ? "" : ";;;";
+  }
+  else{
+    $output .= $m . "=" . "0";
+    $output .= ($m == end($metrics)) ? "" : ";;;";
+  }
+}
+
+print_r($output);
+exit(0);
+
+
+function usage() {
+  print "\nusage: check_awsiops -K <accesskey> -S <secretkey> -v <volume-id> -i <instance-id> -r <aws-region> (optional)\n\n" . 
+        "If given both a VolumeId and an InstanceId, this script get will metrics for the EBS volume (-v).";
+  exit(1);
+}

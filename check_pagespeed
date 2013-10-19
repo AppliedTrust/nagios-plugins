@@ -5,6 +5,9 @@
 # All code is Copyright (C) 2011, Applied Trust Engineering, Inc.
 # ------------------------------------------------------------------
 
+# https://code.google.com/apis/pagespeedonline/v1/getting_started.html
+# https://code.google.com/apis/pagespeedonline/v1/reference.html
+
 $apikey = 'XXX PUT GOOGLE API KEY HERE XXX';
 $targeturl = $argv[1];
 

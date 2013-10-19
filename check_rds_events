@@ -15,7 +15,7 @@ if (!isset($options["d"])) { usage(); }
 
 error_reporting(-1);
 
-$starttime = date("Y-m-d", time()-60*60*12);
+$starttime = date("Y-m-d", time()-60*60*25);
 $cmd = '/usr/local/RDSCli-1.14.001/bin/rds-describe-events -I '.$options["I"].' -S '.$options["S"].' --source-type db-instance --source-identifier '.$options["d"].' --start-time '.$starttime;
 $r = `$cmd`;
 
@@ -68,7 +68,7 @@ foreach (preg_split("/\n/",$r) as $line) {
 	}
 }
 if ($actual_event_count<1) {
-	$msg[] = "No events for this database in the past 12 hours!";
+	$msg[] = "No events for this database in the past day!";
 	$result = 2;
 }
 

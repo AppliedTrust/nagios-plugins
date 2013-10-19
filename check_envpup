@@ -1,0 +1,45 @@
+#!/usr/bin/python
+import serial
+import re
+
+# ------------------------------------------------------------------
+# We offer no warantee or guarantee - use at your own risk!
+# All code is Copyright (C) 2013, AppliedTrust
+# ------------------------------------------------------------------
+
+def get_temps():
+	temps = {}
+	ser = serial.Serial('/dev/ttyUSB0', 9600, timeout=1)
+	for var in ["i","c","b"]:
+		ser.write(var)
+		temps[var] = ser.readline()
+	ser.close()
+	return temps
+
+def critical_exit(str):
+	print "check_envpup CRITICAL: "+str
+	exit(2)
+
+raw_temps = get_temps()
+temps = {}
+m = re.match('I temp: (\d+.\d+)', raw_temps["i"])
+if not m:
+	critical_exit("no I temp")
+temps["i"] = m.group(1)
+m = re.match('B temp: (\d+.\d+)', raw_temps["b"])
+if not m:
+	critical_exit("no B temp")
+temps["b"] = m.group(1)
+m = re.match('C temp: (\d+.\d+)', raw_temps["c"])
+if not m:
+	critical_exit("no C temp")
+temps["c"] = m.group(1)
+	
+perf = []
+for key,val in temps.items():
+	perf.append(key+"="+val)
+
+print "check_envpup OK |"+",".join(perf)
+exit(2)
+
+
