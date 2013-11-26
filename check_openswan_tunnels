@@ -1,0 +1,38 @@
+#!/usr/bin/python
+import argparse, json, subprocess
+
+
+def main():
+        parser = argparse.ArgumentParser()
+        parser.add_argument('-w', '--warning', help='Warning if not exactly this many tunnels', type=int, required=True)
+        parser.add_argument('-c', '--critical', help='Critical if not at least many tunnels', type=int, required=True)
+        args = parser.parse_args()
+
+        try:
+		tunnel_data_raw = subprocess.check_output("sudo ipsec whack --status | grep 'IPsec SA established' | grep 'newest IPSEC'", shell=True)
+        except:
+                print "CRITICAL Unable to fetch ipsec tunnel status"
+                exit(2)
+
+	tunnel_list = tunnel_data_raw.split("\n")
+	del(tunnel_list[-1]) # remove extra line at the end
+	tunnel_count = len(tunnel_list)
+	
+	if (tunnel_count < int(args.critical)):
+          print "CRITICAL only %s tunnels are up (expected at least %s)" % (tunnel_count, args.critical)
+          exit(2)
+
+	elif (tunnel_count != args.warning):
+          print "WARNING only %s tunnels are up (expected %s)"  % (tunnel_count, args.warning)
+          exit(1)
+
+	elif (tunnel_count == args.warning):
+          print "OK %s tunnels are up" % tunnel_count
+          exit(0)
+
+        else:
+          print "CRITICAL unknown problem %s tunnels are up" % tunnel_count
+          exit(2)
+
+if __name__ == "__main__":
+    main()
