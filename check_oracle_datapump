@@ -1,0 +1,29 @@
+#!/usr/bin/python27
+import argparse, subprocess, re
+from datetime import datetime, timedelta
+
+def main():
+	parser = argparse.ArgumentParser()
+	parser.add_argument('-c', '--connect_string', help='Oracle sqlplus connection string', required=True)
+	parser.add_argument('-t', '--timeout', default=10, type=int)
+	args = parser.parse_args()
+	
+	yesterday = datetime.now() - timedelta(days=1)
+	cmd = 'echo "SELECT COUNT(ID) FROM STATSDB_IMPORT_STATUS WHERE STATUS=\'SUCCESS\' AND RUN_DATE  >= TO_DATE(\''+yesterday.strftime('%Y%m%d')+'\',\'yyyymmdd\');" | sqlplus -S '+args.connect_string
+	output = subprocess.check_output(cmd, shell=True)
+
+	m = re.search(r"COUNT\(ID\)\n----------\n\s+(\d+)", output)
+	if not m:
+		print "CRITICAL Unable to parse Oracle data pump status"
+		exit(2)
+	recent_successful_backups = int(m.group(1))
+
+	if (recent_successful_backups > 0):
+	  print "OK %s successful recent backups" % recent_successful_backups
+	  exit(0)
+	else:
+	  print "CRITICAL No successful recent backups"
+	  exit(2)
+
+if __name__ == "__main__":
+    main()
