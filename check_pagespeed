@@ -9,7 +9,12 @@
 # https://code.google.com/apis/pagespeedonline/v1/reference.html
 
 $targeturl = $argv[1];
-$apikey = $argv[2];
+
+if ( isset($argv[2]) && !empty($argv[2]) ) {
+    $apikey = $argv[2];
+} else {
+    $apikey = 'XXX PUT GOOGLE API KEY HERE XXX';
+}
 
 $url='https://www.googleapis.com/pagespeedonline/v1/runPagespeed?key='.$apikey.'&url='.$targeturl;
 $json = json_decode(`wget -q -O - "$url"`);
