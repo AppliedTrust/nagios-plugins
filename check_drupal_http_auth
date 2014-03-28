@@ -1,0 +1,65 @@
+#!/usr/bin/php -q
+<?php
+# ------------------------------------------------------------------
+# We offer no warantee or guarantee - use this code at your own risk!
+# All code is Copyright (C) 2014, Applied Trust, Inc.
+# ------------------------------------------------------------------
+#
+# Logs into Drupal to check an authenticated page
+
+
+## config
+$service_name = "Drupal";
+
+## read arguments/set default thresholds
+$options = getopt("L:u:p:U:s:");
+if (isset($options["L"])) { 
+        $login_url = $options["L"];
+} else { usage(); }
+if (isset($options["u"])) { 
+        $username = $options["u"];
+} else { usage(); }
+if (isset($options["p"])) { 
+        $password = $options["p"];
+} else { usage(); }
+if (isset($options["U"])) { 
+        $check_url = $options["U"];
+} else { usage(); }
+if (isset($options["s"])) { 
+        $check_string = $options["s"];
+} else { usage(); }
+
+## login 
+$cookie_file = tempnam("/tmp", "nagios_drupal_check_cookie");
+$curl_command = "curl -s --cookie-jar " . $cookie_file . " ";
+
+$cmd = $curl_command.$login_url." -X POST -d 'name=".$username."&pass=".$password."&form_id=user_login&op=Log in'";
+$results = `$cmd`;
+
+if (!file_exists( $cookie_file)) {
+  echo $service_name." CRITICAL: can't login to drupal as ".$username."\n";
+  exit(2);
+}
+
+## get target page
+$cmd = $curl_command.$check_url." --cookie ".$cookie_file;
+$results = `$cmd`;
+
+## parse results
+unlink( $cookie_file);
+
+if (strpos($results, $check_string) !== FALSE) {
+  echo $service_name." OK: string found on page\n";
+  exit(0);
+} else {
+  echo $service_name." WARNING: site up but string missing: ".$check_string."\n";
+  exit(1);
+}
+
+
+#########
+function usage() {
+	echo "Usage: check_drupal_http_auth -L <drupal_login_url> -u <username> -p <password> -U <url_to_check> -s <string_to_check>\n";
+	echo "Usage example: check_drupal_http_auth -L http://example.com/user/login -u testuser -p testpassword -U http://example.com/content/target-page -s 'This string means life is good'\n";
+	exit(1);
+}
