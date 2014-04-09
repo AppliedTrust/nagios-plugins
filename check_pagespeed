@@ -17,12 +17,12 @@ $json = json_decode(`wget -q -O - "$url"`);
 $status = 0;
 $message = 'PageSpeed Score: '.$json->score;
 $perf = 'score='.$json->score;
-$perf .= ',numberResources='.$json->pageStats->numberResources;
-$perf .= ', numberHosts='.$json->pageStats->numberHosts;
-$perf .= ', htmlResponseBytes='.$json->pageStats->htmlResponseBytes;
-$perf .= ', cssResponseBytes='.$json->pageStats->cssResponseBytes;
-$perf .= ', imageResponseBytes='.$json->pageStats->imageResponseBytes;
-$perf .= ', javascriptResponseBytes='.$json->pageStats->javascriptResponseBytes;
+$perf .= ';numberResources='.$json->pageStats->numberResources;
+$perf .= ';numberHosts='.$json->pageStats->numberHosts;
+$perf .= ';htmlResponseBytes='.$json->pageStats->htmlResponseBytes;
+$perf .= ';cssResponseBytes='.$json->pageStats->cssResponseBytes;
+$perf .= ';imageResponseBytes='.$json->pageStats->imageResponseBytes;
+$perf .= ';javascriptResponseBytes='.$json->pageStats->javascriptResponseBytes;
 
 echo $message." | ".$perf."\n";
 exit($status);
