@@ -1,0 +1,52 @@
+#!/usr/bin/python
+"""check_graylog2_server
+
+Usage:
+  check_graylog2_server -U <url> [ -i <inputs> ]
+  check_graylog2_server -h | --help
+
+Options:
+  -h --help     Show this screen.
+  -U --url      Graylog2 API URL, including basic auth.
+"""
+from docopt import docopt
+import requests, json, sys
+
+def main():
+  args = docopt(__doc__)
+  try:
+    url = '%s/count/total' % ( args['<url>'] )
+    graylog_request = requests.get( url )
+    graylog_results = json.loads( graylog_request.content )
+    total_events = int(graylog_results['events'])
+  except:
+    e = sys.exc_info()
+    print "CRITICAL error querying Graylog2 for count/total: %s" % e
+    exit(2)
+
+  try:
+    url = '%s/system/inputs' % ( args['<url>'] )
+    graylog_request = requests.get( url )
+    graylog_results = json.loads( graylog_request.content )
+    total_inputs = int(graylog_results['total'])
+  except:
+    e = sys.exc_info()
+    print "CRITICAL error querying Graylog2 for system/inputs: %s" % e
+    exit(2)
+
+  try:
+    url = '%s/system/throughput' % ( args['<url>'] )
+    graylog_request = requests.get( url )
+    graylog_results = json.loads( graylog_request.content )
+    throughput = int(graylog_results['throughput'])
+  except:
+    e = sys.exc_info()
+    print "CRITICAL error querying Graylog2 for system/throughput: %s" % e
+    exit(2)
+
+  print "OK Graylog2 server is healthy: %d events/sec|total_events=%d,inputs=%d,throughput=%d" % ( throughput, total_events, total_inputs, throughput )
+  exit(0)
+
+if __name__ == "__main__":
+    main()
+

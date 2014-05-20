@@ -1,0 +1,98 @@
+#!/usr/bin/python
+import argparse, re, urllib, socket
+
+def main():
+  parser = argparse.ArgumentParser()
+  parser.add_argument('-U', '--url', help='Apache server-status URL', required=True)
+  parser.add_argument('-w', '--warning', type=float, help='Warning if reqs/sec exceeds this amount', required=False)
+  parser.add_argument('-c', '--critical', type=float, help='Critical if reqs/sec exceeds this amount', required=False)
+  parser.add_argument('-t', '--timeout', default=10, type=int)
+  args = parser.parse_args()
+
+  url = args.url+"?auto"
+  try:
+    socket.setdefaulttimeout(args.timeout)
+    server_status_url = urllib.urlopen(url)
+    server_status = server_status_url.read()
+  except:
+    print "CRITICAL Unable to fetch server-status from %s" % url
+    exit(2)
+
+  if not re.findall(r"^Total Accesses:\s+\d+$", server_status, re.M):
+    print "CRITICAL Unable to parse server-status from %s" % url
+    print server_status
+    exit(2)
+
+  perf = []
+
+  m = re.findall(r"^CPULoad:\s+(\d+(\.\d+)?)$", server_status, re.M)
+  if m:
+    perf.append('apache_cpu=%f' % float(m[0][0]))
+
+  m = re.findall(r"^Uptime:\s+(\d+)$", server_status, re.M)
+  if not m:
+    print "CRITICAL Unable to parse server-status for Uptime from %s" % args.url
+    exit(2)
+  perf.append('apache_uptime=%d' % int(m[0]))
+
+  m = re.findall(r"^ReqPerSec:\s+(\d+(\.\d+)?)$", server_status, re.M)
+  if not m:
+    print "CRITICAL Unable to parse server-status for ReqPerSec from %s" % args.url
+    exit(2)
+  requests_per_second = float(m[0][0])
+  perf.append('apache_req_per_sec=%f' % requests_per_second)
+
+  m = re.findall(r"^BytesPerSec:\s+(\d+(\.\d+)?)$", server_status, re.M)
+  if not m:
+    print "CRITICAL Unable to parse server-status for BytesPerSec from %s" % args.url
+    exit(2)
+  perf.append('apache_byte_per_sec=%f' % float(m[0][0]))
+
+  m = re.findall(r"^BytesPerReq:\s+(\d+(\.\d+)?)$", server_status, re.M)
+  if not m:
+    print "CRITICAL Unable to parse server-status for BytesPerReq from %s" % args.url
+    exit(2)
+  perf.append('apache_byte_per_req=%f' % float(m[0][0]))
+
+  m = re.findall(r"^BusyWorkers:\s+(\d+)$", server_status, re.M)
+  if not m:
+    print "CRITICAL Unable to parse server-status for BusyWorkers from %s" % args.url
+    exit(2)
+  perf.append('apache_workers_busy=%d' % int(m[0]))
+
+  m = re.findall(r"^IdleWorkers:\s+(\d+)$", server_status, re.M)
+  if not m:
+    print "CRITICAL Unable to parse server-status for IdleWorkers from %s" % args.url
+    exit(2)
+  perf.append('apache_workers_idle=%d' % int(m[0]))
+
+  m = re.findall(r"^Scoreboard:\s+(\S+)$", server_status, re.M)
+  if not m:
+    print "CRITICAL Unable to parse server-status for Scoreboard from %s" % args.url
+    exit(2)
+  scoreboard = m[0]
+
+  perf.append('apache_ps_wait=%d' % scoreboard.count('_'))
+  perf.append('apache_ps_start=%d' % scoreboard.count('S'))
+  perf.append('apache_ps_read=%d' % scoreboard.count('R'))
+  perf.append('apache_ps_send=%d' % scoreboard.count('W'))
+  perf.append('apache_ps_keep=%d' % scoreboard.count('K'))
+  perf.append('apache_ps_dns=%d' % scoreboard.count('D'))
+  perf.append('apache_ps_log=%d' % scoreboard.count('L'))
+  perf.append('apache_ps_grace=%d' % scoreboard.count('G'))
+  perf.append('apache_ps_close=%d' % scoreboard.count('D'))
+  perf.append('apache_ps_open=%d' % scoreboard.count('.'))
+  perf.append('apache_ps_idle=%d' % scoreboard.count('I'))
+
+  if args.critical and requests_per_second > args.critical:
+    print "Apache CRITICAL %f reqs/sec |%s" % (requests_per_second , ','.join(perf))
+    exit(2)
+  elif args.warning and requests_per_second > args.warning:
+    print "Apache WARNING %f reqs/sec |%s" % (requests_per_second , ','.join(perf))
+    exit(1)
+  else:
+    print "Apache OK %f reqs/sec |%s" % (requests_per_second , ','.join(perf))
+    exit(0)
+
+if __name__ == "__main__":
+    main()
