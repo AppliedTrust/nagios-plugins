@@ -1,0 +1,63 @@
+#!/usr/bin/python2.7
+"""check_kegbot: kegbot monitoring from nagios
+
+See: https://kegbot.org/
+
+Usage:
+  check_kegbot -U <url> [-w <warn_pct>] [-t <warn_temp>]
+  check_kegbot -h | --help
+
+Options:
+  -h --help       Show this screen.
+  -U <url>        Kegbot API URL.
+  -w <warn_pct>   Alert if kegs are below this % [default: 10].
+  -t <warn_temp>  Alert if kegs are above this temp in Celcius [default: 5].
+"""
+from docopt import docopt
+import requests, json, sys
+
+def main():
+  args = docopt(__doc__)
+  taps = {}
+  try:
+    url = '%s/api/taps' % ( args['-U'] )
+    req = requests.get( url )
+    res = json.loads( req.content )
+    for tap in res['objects']:
+      name = tap['name'].lower().replace(" ", "")[:5]
+      taps[name] = {}
+      taps[name]["temp"] = tap["last_temperature"]["temperature_c"]
+      taps[name]["keg"] = "%s (%s)" % (tap['name'], tap['description'])
+      taps[name]["tap"] = tap["current_keg"]["beverage"]["name"]
+      taps[name]["fullness"] = tap["current_keg"]["percent_full"]
+
+  except:
+    e = sys.exc_info()[0]
+    print "CRITICAL error querying Kegbot: %s" % e
+    exit(2)
+
+  full = []
+  stats = []
+  beer_low = False
+  beer_hot = False
+  for tap in taps:
+    full.append("%0.1f%%" % taps[tap]["fullness"])
+    stats.append("%s_fullpct=%f" % (tap, taps[tap]["fullness"]))
+    stats.append("%s_temp=%f" % (tap, taps[tap]["temp"]))
+    if taps[tap]["fullness"] < int(args['-w']):
+      beer_low = True
+    if taps[tap]["temp"] > float(args['-t']):
+      beer_hot = True
+
+  if beer_hot:
+    print "WARNING Kegbot kegs getting hot! %s full|%s" % ( ", ".join(full), ",".join(stats) )
+    exit(1)
+  if beer_low:
+    print "WARNING Kegbot kegs getting low: %s full|%s" % ( ", ".join(full), ",".join(stats) )
+    exit(1)
+  print "OK Kegbot kegs are %s full|%s" % ( ", ".join(full), ",".join(stats) )
+  exit(0)
+
+if __name__ == "__main__":
+    main()
+
