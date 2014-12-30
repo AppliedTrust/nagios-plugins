@@ -19,8 +19,8 @@ define('AWS_SECRET_KEY', $options["S"]);
 error_reporting(-1);
 
 date_default_timezone_set('America/Denver');
-$time_interval = date('o-m-d H:i:s', strtotime("10 minutes ago"));
-$now           = date('o-m-d H:i:s',time());
+$time_interval = strtotime("10 minutes ago");
+$now           = strtotime("now");
 
 
 require 'aws.phar';
