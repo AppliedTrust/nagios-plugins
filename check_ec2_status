@@ -1,0 +1,96 @@
+#!/usr/bin/php
+<?php
+# ------------------------------------------------------------------
+# We offer no warantee or guarantee - use this code at your own risk!
+# All code is Copyright (C) 2014, Applied Trust Engineering, Inc.
+# ------------------------------------------------------------------
+date_default_timezone_set('US/Mountain');
+
+$debug=0;
+
+putenv('EC2_HOME=/usr/local/ec2-api-tools');
+putenv('JAVA_HOME=/usr/java');
+
+$options = getopt("K:S:i:R:");
+if (!isset($options["K"])) { usage(); } 
+if (!isset($options["S"])) { usage(); }
+if (!isset($options["i"])) { usage(); }
+if (!isset($options["R"])) {
+  $region = 'us-east-1';
+} else {
+  $region = $options["R"];
+}
+
+$instancename = $options["i"];
+$key = $options["K"];
+$secret = $options["S"];
+
+$cmd = '/usr/local/ec2-api-tools/bin/ec2-describe-instances -O '.$key.' -W '.$secret.' --region '.$region.' --filter tag:Name='.$instancename;
+if ($debug) { echo "Command: ".$cmd."\n"; }
+$result = `$cmd`;
+if ($debug) { echo "Results:\n".$result."\n"; }
+if (preg_match('/^INSTANCE\s+(i-\S+)/m', $result, $m)) {
+  $instanceid = $m[1];
+} else {
+  echo "check_ec2_status CRITICAL Can't find instance ID for ".$instancename."\n";
+  exit(2);
+}
+
+$cmd = '/usr/local/ec2-api-tools/bin/ec2-describe-instance-status -O '.$key.' -W '.$secret.' --region '.$region.' '.$instanceid;
+$s = 0;
+if ($debug) { echo "Command: ".$cmd."\n"; }
+$result = `$cmd`;
+if ($debug) { echo "Results:\n".$result."\n"; }
+
+# If no instance is found, return critical
+if (preg_match('/^INSTANCE\s+(i-\S+)/m', $result, $m)) {
+  $current_instance = $m[1];
+} else {
+  echo "check_ec2_status CRITICAL: Can't find instance ".$instancename." in region ".$region."\n";
+  exit(2);
+}
+
+# If there's an event, check the type and return an alert
+if (preg_match('/^EVENT\s+(\S+)\s+(\S+)\s+(.*)$/m', $result, $e)) {
+  if ($debug) { echo "Type: ".$e[1]."\nDate/time: ".$e[2]."\nMessage: ".$e[3]."\n"; }
+  $s = 1;
+  if (strpos($e[3], 'Completed')) {
+    $s = 0;
+  } else {
+    switch ($e[1]) {
+      case 'instance-reboot':
+        $msg = 'Instance has been scheduled for a reboot at '.$e[2].' - '.$e[3];
+        break;
+      case 'system-reboot':
+        $msg = 'System has been scheduled for a reboot at '.$e[2].' - '.$e[3];
+        break;
+      case 'system-maintenance':
+        $msg = 'System has been scheduled for maintenance at '.$e[2].' - '.$e[3];
+        break;
+      case 'instance-retirement':
+        $msg = 'Instance has been scheduled for retirement at '.$e[2].' - '.$e[3];
+        $s = 2;
+        break;
+      case 'instance-stop':
+        $msg = 'Instance is scheduled to be stopped at '.$e[2].' - '.$e[3];
+        $s = 2;
+        break;
+    }
+  }
+}
+
+
+#Print results and exit with return code
+switch ($s) {
+  case 0:
+    echo 'check_ec2_status OK: '.$instancename." has no events.\n";
+    exit(0);
+  case 1:
+    echo 'check_ec2_status WARNING: '.$msg."\n";
+    exit(1);
+  case 2:
+    echo 'check_ec2_status CRITICAL: '.$msg."\n";
+    exit(2);
+  default:
+    exit(3);
+}
