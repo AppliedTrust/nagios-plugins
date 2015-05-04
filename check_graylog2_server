@@ -44,7 +44,7 @@ def main():
     print "CRITICAL error querying Graylog2 for system/throughput: %s" % e
     exit(2)
 
-  print "OK Graylog2 server is healthy: %d events/sec|total_events=%d,inputs=%d,throughput=%d" % ( throughput, total_events, total_inputs, throughput )
+  print "OK Graylog2 server is healthy: %d events/sec|total_events=%d inputs=%d throughput=%d" % ( throughput, total_events, total_inputs, throughput )
   exit(0)
 
 if __name__ == "__main__":
