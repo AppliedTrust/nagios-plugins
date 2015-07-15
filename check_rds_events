@@ -34,7 +34,10 @@ foreach (preg_split("/\n/",$r) as $line) {
 	} elseif (preg_match("/Finished DB Instance backup/",$event)) {
 		$msg[] = $event;
 
-	} elseif (preg_match("/DB instance created/",$event,$matches)) {
+	} elseif (preg_match("/Replication for the Read Replica resumed/",$event)) {
+		$msg[] = $event;
+
+   } elseif (preg_match("/DB instance created/",$event,$matches)) {
 		$msg[] = $event;
 		$result = 1;
 
