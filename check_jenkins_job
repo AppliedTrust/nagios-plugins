@@ -1,5 +1,5 @@
 #!/usr/bin/python
-import argparse, json, subprocess
+import argparse, json, subprocess, requests
 
 def main():
         parser = argparse.ArgumentParser()
@@ -9,8 +9,8 @@ def main():
 
 	url = args.url+"/job/"+args.jobname+"/lastBuild/api/json"
         try:
-		output = subprocess.check_output("curl -X GET -s "+url, shell=True)
-		job_data = json.loads(output)
+		r = requests.get(url)
+		job_data = json.loads(r.text)
         except:
                 print "CRITICAL Unable to fetch job status for %s" % args.jobname
                 exit(2)
