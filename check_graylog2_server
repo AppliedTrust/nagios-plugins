@@ -2,46 +2,84 @@
 """check_graylog2_server
 
 Usage:
-  check_graylog2_server -U <url> [ -i <inputs> ]
+  check_graylog2_server -U <url> [ -u <username> -p <password> ] [ -S <sslverify> ] [ -i <inputs> ]
   check_graylog2_server -h | --help
 
 Options:
-  -h --help     Show this screen.
-  -U --url      Graylog2 API URL, including basic auth.
+  -h --help        Show this screen.
+  -U --url         Graylog2 API URL
+  -u --username    HTTP Basic username
+  -p --password    HTTP Basic password
+  -S --sslverify   path to custom SSL CA certificate to use for verification
+  -i --inputs      list of inputs to monitor
 """
 from docopt import docopt
+import pprint
 import requests, json, sys
+
+def do_url (url = "", username = "", password = "", sslverify = ""):
+  try:
+    if ((username != "") and (password != "") and (sslverify != "")):
+      r = requests.get( url, auth=(username, password), verify=sslverify )
+    elif ((username != "") and (password != "")):
+      r = requests.get( url, auth=(username, password) )
+    else:
+      r = requests.get( url )
+    return r
+  except:
+    e = sys.exc_info()
+    print "CRITICAL - error querying graylog2 for url '%s': %s" % (url, e)
+    exit(2)
+
 
 def main():
   args = docopt(__doc__)
+
+  username = ""
+  password = ""
+  inputs = ""
+  sslverify = ""
+  apiurl = ""
+
   try:
-    url = '%s/count/total' % ( args['<url>'] )
-    graylog_request = requests.get( url )
+    username    = args['<username>']
+    password    = args['<password>']
+    inputs      = args['<inputs>']
+    apiurl      = args['<url>']
+    sslverify   = args['<sslverify>']
+  except:
+    e = sys.exc_info()
+    print "CRITICAL - error getting argument infos: %s" %e
+    exit(2)
+
+  url = '%s/count/total' % ( apiurl )
+  graylog_request = do_url (url, username, password, sslverify)
+  try:
     graylog_results = json.loads( graylog_request.content )
     total_events = int(graylog_results['events'])
   except:
     e = sys.exc_info()
-    print "CRITICAL error querying Graylog2 for count/total: %s" % e
+    print "CRITICAL - error querying Graylog2 for count/total: %s" % e
     exit(2)
 
+  url = '%s/system/inputs' % ( apiurl )
+  graylog_request = do_url (url, username, password, sslverify)
   try:
-    url = '%s/system/inputs' % ( args['<url>'] )
-    graylog_request = requests.get( url )
     graylog_results = json.loads( graylog_request.content )
-    total_inputs = int(graylog_results['total'])
+    total_input = int(graylog_results['total'])
   except:
     e = sys.exc_info()
-    print "CRITICAL error querying Graylog2 for system/inputs: %s" % e
+    print "CRITICAL - error querying Graylog2 for system/inputs: %s" % e
     exit(2)
 
+  url = '%s/system/throughput' % ( apiurl )
+  graylog_request = do_url (url, username, password, sslverify)
   try:
-    url = '%s/system/throughput' % ( args['<url>'] )
-    graylog_request = requests.get( url )
     graylog_results = json.loads( graylog_request.content )
     throughput = int(graylog_results['throughput'])
   except:
     e = sys.exc_info()
-    print "CRITICAL error querying Graylog2 for system/throughput: %s" % e
+    print "CRITICAL - error querying Graylog2 for system/throughput: %s" % e
     exit(2)
 
   print "OK Graylog2 server is healthy: %d events/sec|total_events=%d,inputs=%d,throughput=%d" % ( throughput, total_events, total_inputs, throughput )
